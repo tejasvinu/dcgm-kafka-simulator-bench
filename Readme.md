@@ -1,8 +1,8 @@
-# dcgm-hpc-simulator Simulator
+# dcgm-hpc-simulator
 
 ## Overview
 
-ExaODAF Simulator is a comprehensive toolkit designed to simulate GPU metrics, handle Kafka-based data production and consumption, and analyze system throughput. It leverages NVIDIA's DCGM for GPU management and Kafka for real-time data streaming, enabling efficient monitoring and analysis of GPU performance in a clustered environment.
+dcgm-hpc-simulator is a comprehensive toolkit designed to simulate GPU metrics, handle Kafka-based data production and consumption, and analyze system throughput. It leverages NVIDIA's DCGM for GPU management and Kafka for real-time data streaming, enabling efficient monitoring and analysis of GPU performance in a clustered environment.
 
 ## Components
 
@@ -16,7 +16,7 @@ ExaODAF Simulator is a comprehensive toolkit designed to simulate GPU metrics, h
 
 1. **Clone the Repository**
     ```bash
-    git clone https://github.com/yourusername/ExaODAF.git
+    git clone https://github.com/yourusername/dcgm-hpc-simulator.git
     cd ExaODAF
     ```
 
