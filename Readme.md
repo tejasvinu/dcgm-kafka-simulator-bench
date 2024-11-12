@@ -1,73 +1,107 @@
-# dcgm-hpc-simulator
+# dcgm-hpc-simulator: Exascale GPU Benchmark Simulator
+
+A comprehensive benchmarking suite for simulating and testing DCGM (Data Center GPU Manager) metrics collection at scale, designed for exascale computing environments.
 
 ## Overview
 
-dcgm-hpc-simulator is a comprehensive toolkit designed to simulate GPU metrics, handle Kafka-based data production and consumption, and analyze system throughput. It leverages NVIDIA's DCGM for GPU management and Kafka for real-time data streaming, enabling efficient monitoring and analysis of GPU performance in a clustered environment.
+`dcgm-hpc-simulator` is a simulation framework that tests the scalability and performance of DCGM metrics collection systems. It simulates multiple GPU nodes (each with 4 GPUs) and generates realistic DCGM metrics, measuring throughput and performance characteristics.
+
+## Features
+
+* Simulates multiple GPU nodes (scalable from 8 to 8192 nodes).
+* Each node simulates 4 GPUs, generating realistic DCGM metrics.
+* Kafka-based metrics collection and processing.
+* Comprehensive benchmarking with configurable warmup and test durations.
+* Detailed performance analysis and visualization.
+* Resource monitoring and logging.
+* Configurable test scenarios.
 
 ## Components
 
-- **simulator.sh**: Shell script to initialize and manage simulation servers.
-- **kafka_prod.py**: Asynchronous Kafka producer that generates and sends DCGM metrics.
-- **kafka_consume.py**: Asynchronous Kafka consumer that processes incoming DCGM metrics.
-- **dcgm_sim_test.py**: Simulated DCGM metrics server to emulate GPU data for testing purposes.
-- **analyze_throughput.py**: Data analysis tool for evaluating throughput based on Kafka consumer logs.
+1. **Metrics Server (`dcgm_sim_test.py`):** Simulates multiple GPU nodes, providing DCGM-format metrics via HTTP endpoints.  Uses a scalable architecture with one port per node.
 
-## Installation
+2. **Kafka Producer (`kafka_prod.py`):** Collects metrics from simulated nodes, efficiently batching and rate-limiting data. Handles multiple nodes concurrently.
 
-1. **Clone the Repository**
-    ```bash
-    git clone https://github.com/yourusername/dcgm-hpc-simulator.git
-    cd ExaODAF
-    ```
+3. **Kafka Consumer (`kafka_consume.py`):** Processes incoming metrics, tracking throughput and performance metrics. Implements reliable message handling.
 
-2. **Install Dependencies**
-    ```bash
-    pip install -r requirements.txt
-    ```
+4. **Benchmark Controller (`simulator.sh`):** Orchestrates the benchmark process, managing configurations, execution, cleanup, and resource management.
 
-3. **Configure Kafka**
-    Ensure Kafka is installed and running. Update the bootstrap servers in `kafka_prod.py` and `kafka_consume.py` as per your setup.
+5. **Analysis Tool (`analyze_throughput.py`):** Processes benchmark results, generating statistical analysis (including confidence intervals and regression analysis) and visualizations.
 
-## Usage
 
-1. **Start the DCGM Metrics Server**
-    ```bash
-    python dcgm_sim_test.py --num_ports <number_of_ports> --start_port <starting_port> --total_nodes <total_nodes>
-    ```
+## Prerequisites
 
-2. **Run the Kafka Producer**
-    ```bash
-    python kafka_prod.py
-    ```
-
-3. **Run the Kafka Consumer**
-    ```bash
-    python kafka_consume.py
-    ```
-
-4. **Analyze Throughput**
-    ```bash
-    python analyze_throughput.py
-    ```
+* Python 3.8+
+* A running Kafka cluster (with configured bootstrap servers).
+* Python packages:  Install using `pip install aiokafka aiohttp numpy pandas matplotlib seaborn scipy psutil lz4`
 
 ## Configuration
 
-- **Kafka Producer (`kafka_prod.py`)**
-    - Update `KAFKA_BOOTSTRAP_SERVERS` with your Kafka servers.
-    - Adjust `FETCH_INTERVAL`, `RETRIES`, and other parameters as needed.
+1. **Kafka Settings:** Update `KAFKA_BOOTSTRAP_SERVERS` in `kafka_prod.py` and configure the topic name in `DCGM_KAFKA_TOPIC`.
 
-- **Kafka Consumer (`kafka_consume.py`)**
-    - Update `bootstrap_servers` with your Kafka servers.
-    - Modify `group_id` and other consumer configurations as necessary.
+2. **Test Parameters:** Modify test configurations within `simulator.sh` (node counts, process distribution, warmup/test durations, etc.).
 
-- **DCGM Metrics Server (`dcgm_sim_test.py`)**
-    - Set `METRICS_CACHE_TTL`, `WORKER_CONNECTIONS`, and other server parameters.
-    - Configure the number of GPUs per node and other simulation settings.
+
+## Usage
+
+1. **Start the Benchmark:** `./simulator.sh`
+
+2. **Test Configurations:**  The script supports various node configurations (8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192 nodes), each with a corresponding process distribution optimized for performance.
+
+3. **Results and Analysis:**
+    * Logs: `benchmark_logs/<timestamp>`
+    * Analysis Results: `benchmark_logs/<timestamp>/analysis_results.log`
+    * Visualizations: `benchmark_logs/<timestamp>/throughput_analysis.png`
+
+
+## Performance Considerations
+
+* Each node simulates 4 GPUs with realistic DCGM metrics.
+* Default warmup period: 5 minutes.
+* Default test duration: 30 minutes.
+* Resource monitoring interval: 30 seconds (configurable).
+* Configurable rate limiting and batch sizes.
+
+
+## Monitoring and Logging
+
+* Real-time resource monitoring (CPU, memory, disk usage).
+* Detailed logs for each component.
+* Performance metrics and error tracking.
+* Automated log rotation and archiving.
+
+
+## Error Handling
+
+* Graceful shutdown mechanisms.
+* Automatic resource cleanup.
+* Error logging and reporting.
+* Process monitoring and recovery.
+
+
+## Analysis Features
+
+* Statistical analysis of throughput.
+* Confidence intervals calculation.
+* Regression analysis.
+* Performance visualization.
+* Steady-state analysis.
+
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or submit a pull request for any improvements or bug fixes.
+1. Fork the repository.
+2. Create a feature branch.
+3. Commit your changes.
+4. Push to the branch.
+5. Create a pull request.
+
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+MIT License (see `LICENSE` file)
+
+
+## Contact
+
+Use the issue tracker for questions or concerns.
