@@ -1,4 +1,5 @@
 from wsgiref.simple_server import make_server, WSGIRequestHandler
+from wsgiref.handlers import SimpleHandler  # Add this import
 import logging
 from fastapi import FastAPI, Response
 from fastapi.responses import PlainTextResponse
@@ -389,8 +390,9 @@ class OptimizedWSGIRequestHandler(WSGIRequestHandler):
             
             if not self.parse_request():
                 return
-            
-            handler = ServerHandler(
+
+            # Use SimpleHandler instead of ServerHandler
+            handler = SimpleHandler(
                 self.rfile, self.wfile, self.get_stderr(), self.get_environ()
             )
             handler.request_handler = self
