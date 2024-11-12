@@ -52,20 +52,82 @@ log() {
 
 # Add before starting benchmarks - after log() function definition
 setup_system_limits() {
-    # Set system-wide limits
-    ulimit -n 65536 || true
-    
-    # Try to update system limits if we have sudo access
-    if command -v sudo >/dev/null 2>&1; then
-        sudo sysctl -w fs.file-max=65536 || true
-        sudo sysctl -w fs.nr_open=65536 || true
+    local current_limit=$(ulimit -n)
+    local target_limit=65536
+    local updated=false
+
+    log "Current file descriptor limit: $current_limit"
+
+    # First try setting user limits without sudo
+    if ulimit -n "$target_limit" 2>/dev/null; then
+        log "Successfully set file descriptor limit to $target_limit"
+        updated=true
+    fi
+
+    # If we couldn't set the limit and have sudo, try with sudo
+    if [ "$updated" = false ] && command -v sudo >/dev/null 2>&1; then
+        log "Attempting to set system limits with sudo..."
         
-        # Update limits in /etc/security/limits.conf if possible
-        if sudo test -w /etc/security/limits.conf; then
-            echo "* soft nofile 65536" | sudo tee -a /etc/security/limits.conf
-            echo "* hard nofile 65536" | sudo tee -a /etc/security/limits.conf
+        # Try to update system limits
+        if sudo sysctl -w fs.file-max="$target_limit" >/dev/null 2>&1; then
+            if sudo sysctl -w fs.nr_open="$target_limit" >/dev/null 2>&1; then
+                log "Successfully updated system-wide limits"
+            fi
+        fi
+
+        # Try to update current session limits with sudo
+        if sudo bash -c "ulimit -n $target_limit" >/dev/null 2>&1; then
+            log "Successfully set session file descriptor limit"
+            updated=true
         fi
     fi
+
+    if [ "$updated" = false ]; then
+        log "WARNING: Could not increase file descriptor limits"
+        log "Current limit of $current_limit will be used"
+        
+        # Calculate max nodes based on current limit
+        local max_nodes=$((current_limit/4))  # Using 4 file descriptors per node as estimate
+        log "Based on current limits, recommended max nodes: $max_nodes"
+        
+        # Filter configs array to only include supported node counts
+        local old_configs=("${configs[@]}")
+        configs=()
+        for config in "${old_configs[@]}"; do
+            local num_nodes=${config%%:*}
+            if [ "$num_nodes" -le "$max_nodes" ]; then
+                configs+=("$config")
+            else
+                log "Skipping configuration with $num_nodes nodes (exceeds limit)"
+            fi
+        done
+        
+        if [ ${#configs[@]} -eq 0 ]; then
+            log "ERROR: No valid configurations remain within system limits"
+            exit 1
+        fi
+        
+        log "Proceeding with ${#configs[@]} valid configurations"
+    fi
+}
+
+# Add this function to validate configuration before starting servers
+validate_configuration() {
+    local config=$1
+    local num_nodes=${config%%:*}
+    local current_limit=$(ulimit -n)
+    local estimated_fds=$((num_nodes * 4))  # Estimate 4 FDs per node
+    
+    if [ "$estimated_fds" -gt "$((current_limit * 9 / 10))" ]; then
+        log "WARNING: Configuration with $num_nodes nodes may exceed 90% of file descriptor limit ($current_limit)"
+        log "This could lead to stability issues"
+        read -p "Do you want to continue with this configuration? (y/N) " -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            return 1
+        fi
+    fi
+    return 0
 }
 
 # Function to check if a process is running
@@ -130,6 +192,13 @@ trap cleanup EXIT INT TERM
 # Function to run the benchmark for a given configuration
 run_benchmark() {
   local config=$1
+  
+  # Validate configuration before proceeding
+  if ! validate_configuration "$config"; then
+      log "Skipping configuration $config due to resource constraints"
+      return 0
+  fi
+
   local num_nodes=${config%%:*}
   local num_processes=${config##*:}
 

@@ -188,6 +188,18 @@ class MetricsServer:
         self.server_pools = []
         self.current_pool = 0
 
+        # Get available file descriptors and adjust pool size
+        self.file_limit = self.get_file_limit()
+        self.max_servers_per_pool = max(1, min(
+            total_nodes,
+            (self.file_limit - 100) // 4  # Reserve 100 FDs for system use, 4 FDs per server
+        ))
+        self.num_pools = (total_nodes + self.max_servers_per_pool - 1) // self.max_servers_per_pool
+        
+        logger.info(f"File descriptor limit: {self.file_limit}")
+        logger.info(f"Max servers per pool: {self.max_servers_per_pool}")
+        logger.info(f"Number of pools required: {self.num_pools}")
+
     def get_file_limit(self):
         """Get current process file descriptor limit"""
         import resource
@@ -199,6 +211,21 @@ class MetricsServer:
         except Exception as e:
             logger.warning(f"Could not increase file limit: {e}")
             return soft
+
+    def get_file_limit(self):
+        """Get current process file descriptor limit with fallback"""
+        try:
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            # Try to increase to hard limit
+            try:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+                return hard
+            except ValueError:
+                return soft
+        except Exception as e:
+            logger.warning(f"Could not determine file descriptor limit: {e}")
+            return 1024  # Conservative default
 
     def get_metrics_for_node(self, node_id):
         """Generate metrics for a specific node with 4 GPUs"""
