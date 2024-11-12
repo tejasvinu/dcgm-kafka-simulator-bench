@@ -1,4 +1,4 @@
-# ExaODAF Simulator
+# dcgm-hpc-simulator Simulator
 
 ## Overview
 
