@@ -1,4 +1,4 @@
-from wsgiref.simple_server import make_server
+from wsgiref.simple_server import make_server, WSGIRequestHandler
 import logging
 from fastapi import FastAPI, Response
 from fastapi.responses import PlainTextResponse
@@ -16,6 +16,8 @@ import argparse
 import asyncio
 import signal
 import sys
+import socket
+import errno
 
 # Logging setup
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -180,6 +182,24 @@ class MetricsServer:
         self.running = True
         self.app = wsgi_app
 
+        # Add new configurations for resource management
+        self.file_limit = self.get_file_limit()
+        self.max_servers = min(total_nodes, self.file_limit // 8)  # 8 FDs per server approx
+        self.server_pools = []
+        self.current_pool = 0
+
+    def get_file_limit(self):
+        """Get current process file descriptor limit"""
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        try:
+            # Try to increase limit to hard limit
+            resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+            return hard
+        except Exception as e:
+            logger.warning(f"Could not increase file limit: {e}")
+            return soft
+
     def get_metrics_for_node(self, node_id):
         """Generate metrics for a specific node with 4 GPUs"""
         base_metrics = get_cached_metrics()
@@ -221,14 +241,34 @@ class MetricsServer:
         return app
 
     def run_server(self, port: int, node_id: int):
-        """Run server instance for a specific node"""
+        """Run server instance with optimized resource usage"""
         try:
             app = self.create_app_for_node(node_id)
-            httpd = make_server(self.host, port, app)
+            
+            # Configure server with optimized settings
+            server = make_server(
+                self.host, 
+                port, 
+                app,
+                handler_class=OptimizedWSGIRequestHandler
+            )
+            
+            # Set socket options for reuse
+            server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            
+            # Set non-blocking mode
+            server.socket.setblocking(False)
+            
             logger.info(f"Server serving node {node_id} with 4 GPUs on http://{self.host}:{port}")
             
             while self.running:
-                httpd.handle_request()
+                try:
+                    server.handle_request()
+                except socket.error as e:
+                    if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                        raise
+                    time.sleep(0.1)
+                    
         except Exception as e:
             logger.error(f"Error running server for node {node_id} on port {port}: {e}")
         finally:
@@ -258,40 +298,47 @@ class MetricsServer:
         os._exit(0)
 
     def start_servers(self):
-        """Start one server per node"""
+        """Start servers in pools to manage resources"""
         signal.signal(signal.SIGINT, self.signal_handler)
         signal.signal(signal.SIGTERM, self.signal_handler)
 
         try:
-            logger.info(f"Starting {self.total_nodes} servers (one per node)...")
+            total_pools = (self.total_nodes + self.max_servers - 1) // self.max_servers
+            logger.info(f"Starting {self.total_nodes} servers in {total_pools} pools")
             
-            # Start servers sequentially to avoid port conflicts
-            for node_id in range(self.total_nodes):
-                port = self.start_port + node_id
-                try:
-                    p = multiprocessing.Process(
-                        target=self.run_server,
-                        args=(port, node_id),
-                        name=f"server-node{node_id}"
-                    )
-                    p.start()
-                    self.processes.append(p)
-                    logger.info(f"Started server for node {node_id} on port {port}")
-                    
-                    # Brief pause between server starts
-                    time.sleep(0.1)
-                except Exception as e:
-                    logger.error(f"Failed to start server for node {node_id}: {e}")
-                    raise
-
-            # Verify servers are running
-            time.sleep(1)  # Give servers time to initialize
-            running_servers = [p for p in self.processes if p.is_alive()]
-            if not running_servers:
-                raise RuntimeError("No servers successfully started")
+            for pool in range(total_pools):
+                start_idx = pool * self.max_servers
+                end_idx = min((pool + self.max_servers), self.total_nodes)
+                
+                # Start servers in current pool
+                pool_processes = []
+                for node_id in range(start_idx, end_idx):
+                    port = self.start_port + node_id
+                    try:
+                        p = multiprocessing.Process(
+                            target=self.run_server,
+                            args=(port, node_id),
+                            name=f"server-node{node_id}"
+                        )
+                        p.start()
+                        pool_processes.append(p)
+                        time.sleep(0.1)  # Small delay between starts
+                    except Exception as e:
+                        logger.error(f"Failed to start server for node {node_id}: {e}")
+                        raise
+                
+                self.processes.extend(pool_processes)
+                self.server_pools.append(pool_processes)
+                
+                # Verify current pool
+                time.sleep(1)
+                running_servers = [p for p in pool_processes if p.is_alive()]
+                if not running_servers:
+                    raise RuntimeError(f"No servers successfully started in pool {pool}")
+                
+                logger.info(f"Successfully started pool {pool} with {len(running_servers)} servers")
             
-            logger.info(f"Successfully started {len(running_servers)} servers")
-
+            # Monitor all processes
             while self.running and any(p.is_alive() for p in self.processes):
                 time.sleep(1)
                 
@@ -299,6 +346,34 @@ class MetricsServer:
             logger.error(f"Error in server management: {e}")
             self.force_shutdown()
             raise
+
+# Add optimized request handler
+class OptimizedWSGIRequestHandler(WSGIRequestHandler):
+    def handle(self):
+        """Handle a single HTTP request with optimized resource usage"""
+        try:
+            self.raw_requestline = self.rfile.readline(65537)
+            if len(self.raw_requestline) > 65536:
+                self.requestline = ''
+                self.request_version = ''
+                self.command = ''
+                self.send_error(414)
+                return
+            
+            if not self.parse_request():
+                return
+            
+            handler = ServerHandler(
+                self.rfile, self.wfile, self.get_stderr(), self.get_environ()
+            )
+            handler.request_handler = self
+            handler.run(self.server.get_app())
+        except socket.timeout as e:
+            self.log_error("Request timed out: %r", e)
+            self.close_connection = True
+        except Exception as e:
+            self.log_error("Error handling request: %r", e)
+            self.close_connection = True
 
 def get_optimal_workers(total_nodes: int) -> int:
     """Calculate optimal number of worker processes"""

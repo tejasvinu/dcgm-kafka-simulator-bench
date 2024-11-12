@@ -50,6 +50,24 @@ log() {
   echo "[${timestamp}] ${message}" | tee -a "$MAIN_LOG"
 }
 
+# Add before starting benchmarks - after log() function definition
+setup_system_limits() {
+    # Set system-wide limits
+    ulimit -n 65536 || true
+    
+    # Try to update system limits if we have sudo access
+    if command -v sudo >/dev/null 2>&1; then
+        sudo sysctl -w fs.file-max=65536 || true
+        sudo sysctl -w fs.nr_open=65536 || true
+        
+        # Update limits in /etc/security/limits.conf if possible
+        if sudo test -w /etc/security/limits.conf; then
+            echo "* soft nofile 65536" | sudo tee -a /etc/security/limits.conf
+            echo "* hard nofile 65536" | sudo tee -a /etc/security/limits.conf
+        fi
+    fi
+}
+
 # Function to check if a process is running
 is_process_running() {
   local pid=$1
@@ -209,6 +227,7 @@ monitor_resources &
 monitor_pid=$!
 
 # Main benchmark execution
+setup_system_limits
 log "Starting benchmark suite"
 log "Log directory: $LOG_DIR"
 
