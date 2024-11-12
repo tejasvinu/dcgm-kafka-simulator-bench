@@ -11,9 +11,11 @@ METRICS_SERVER="dcgm_sim_test"  # Assuming this is your FastAPI app
 CONSUMER_SCRIPT="kafka_consume.py"
 PRODUCER_SCRIPT="kafka_prod.py"
 BASE_LOG_DIR="benchmark_logs"
-STARTUP_WAIT=45    # Time to wait for server startup
-TEST_DURATION=660  # Test duration in seconds
-SHUTDOWN_WAIT=30   # Time to wait for graceful shutdown
+STARTUP_WAIT=60          # Time to wait for server startup
+WARMUP_PERIOD=300       # 5 minute warmup
+TEST_DURATION=1800      # 30 minute test duration (excluding warmup)
+SHUTDOWN_WAIT=60        # Time for graceful shutdown
+METRICS_INTERVAL=30     # Collect metrics every 30 seconds
 SERVER_PORT=50000  # Single port for the server
 NUM_SERVER_WORKERS=4 # Number of Uvicorn workers (adjust as needed)
 
@@ -113,6 +115,13 @@ run_benchmark() {
   local num_nodes=${config%%:*}
   local num_processes=${config##*:}
 
+  log "Starting benchmark with warmup period..."
+  log "Warmup: $WARMUP_PERIOD seconds"
+  log "Test duration: $TEST_DURATION seconds"
+
+  # Start resource monitoring with timestamp
+  local test_start_time=$(date +%s)
+
   local benchmark_log="${LOG_DIR}/benchmark_${num_nodes}_nodes.log"
   local consumer_log="${LOG_DIR}/consumer_${num_nodes}_nodes.log"
   local producer_log="${LOG_DIR}/producer_${num_nodes}_nodes.log"
@@ -163,8 +172,10 @@ run_benchmark() {
   python3 "$PRODUCER_SCRIPT" --num_nodes "$num_nodes" --num_processes "$num_processes" > "$producer_log" 2>&1 &
   producer_pid=$!
 
-  # Wait for test duration
-  log "Running test for $TEST_DURATION seconds..."
+  # Wait for warmup + test duration
+  log "Running warmup period for $WARMUP_PERIOD seconds..."
+  sleep "$WARMUP_PERIOD"
+  log "Warmup complete, starting main test for $TEST_DURATION seconds..."
   sleep "$TEST_DURATION"
 
   # Graceful shutdown
@@ -213,6 +224,14 @@ for config in "${configs[@]}"; do
   # Add small delay between tests
   sleep 5
 done
+
+# Run analysis and visualization
+log "Running analysis and visualization..."
+python3 analyze_throughput.py > "${LOG_DIR}/analysis_results.log" 2>&1
+
+# Archive analysis results and visualizations
+log "Archiving analysis results and visualizations..."
+tar -czf "${LOG_DIR}_analysis.tar.gz" "${LOG_DIR}/throughput_analysis.png" "${LOG_DIR}/analysis_summary.txt" "${LOG_DIR}/analysis_results.log"
 
 log "All benchmarks completed"
 log "Results and logs available in: $LOG_DIR"

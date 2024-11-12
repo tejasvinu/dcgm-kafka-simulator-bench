@@ -7,6 +7,7 @@ from aiokafka import AIOKafkaProducer
 from datetime import datetime
 import os
 import argparse
+import time
 
 # Configuration
 KAFKA_BOOTSTRAP_SERVERS = ['10.180.8.24:9092', '10.180.8.24:9093', '10.180.8.24:9094']
@@ -15,6 +16,7 @@ FETCH_INTERVAL = 1  # Seconds
 RETRIES = 3
 RETRY_DELAY = 5  # Seconds
 TIMER_DURATION = 10 * 60  # 10 minutes in seconds
+WARMUP_PERIOD = 60  # Warmup period in seconds
 
 # Update producer configurations to use only supported parameters
 producer_config = {
@@ -164,8 +166,47 @@ async def stop_after_timer(tasks, producer):
     # Shutdown the producer
     await shutdown_producer(producer)
 
+class RateLimiter:
+    def __init__(self, rate_limit):
+        self.rate_limit = rate_limit  # messages per second
+        self.tokens = rate_limit
+        self.last_update = time.monotonic()
+
+    async def acquire(self):
+        while self.tokens <= 0:
+            now = time.monotonic()
+            time_passed = now - self.last_update
+            self.tokens = min(self.rate_limit, self.tokens + time_passed * self.rate_limit)
+            self.last_update = now
+            if self.tokens <= 0:
+                await asyncio.sleep(0.1)
+        self.tokens -= 1
+        return True
+
 async def run_producers(num_nodes, num_processes): 
     producer = await create_producer()
+    rate_limiter = RateLimiter(rate_limit=1000)  # Adjust rate limit as needed
+    
+    metrics = {
+        'start_time': time.time(),
+        'warmup_complete': False,
+        'messages_sent': 0,
+        'bytes_sent': 0,
+        'errors': 0
+    }
+
+    async def monitor_metrics():
+        while True:
+            await asyncio.sleep(30)
+            elapsed = time.time() - metrics['start_time']
+            if elapsed > WARMUP_PERIOD and not metrics['warmup_complete']:
+                metrics['warmup_complete'] = True
+                metrics['messages_sent'] = 0  # Reset after warmup
+                logger.info("Warmup complete, starting main test")
+
+            rate = metrics['messages_sent'] / 30 if metrics['warmup_complete'] else 0
+            logger.info(f"Current sending rate: {rate:.2f} msgs/sec")
+
     async with aiohttp.ClientSession() as session:
         try:
             # Create one task per node

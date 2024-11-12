@@ -5,6 +5,7 @@ import logging
 from aiokafka import AIOKafkaConsumer
 from datetime import datetime, timedelta
 import os
+import numpy as np
 
 # Configure logging
 logging.basicConfig(
@@ -47,6 +48,41 @@ metrics = {
     'last_metrics_time': datetime.now(),
     'metrics_interval': 30  # Log metrics every 60 seconds
 }
+
+class MetricsCollector:
+    def __init__(self):
+        self.start_time = time.time()
+        self.metrics = {
+            'warmup_complete': False,
+            'steady_state_metrics': {
+                'throughput': [],
+                'latency': [],
+                'processing_time': []
+            }
+        }
+
+    def update(self, msg_count, bytes_received, latency):
+        current_time = time.time()
+        elapsed = current_time - self.start_time
+
+        # After warmup period, collect steady-state metrics
+        if elapsed > WARMUP_PERIOD:
+            if not self.metrics['warmup_complete']:
+                self.metrics['warmup_complete'] = True
+                logger.info("Entering steady state metrics collection")
+            
+            self.metrics['steady_state_metrics']['throughput'].append(msg_count)
+            self.metrics['steady_state_metrics']['latency'].append(latency)
+
+    def get_summary(self):
+        if not self.metrics['steady_state_metrics']['throughput']:
+            return "No steady-state metrics available"
+
+        return {
+            'avg_throughput': np.mean(self.metrics['steady_state_metrics']['throughput']),
+            'p95_latency': np.percentile(self.metrics['steady_state_metrics']['latency'], 95),
+            'std_throughput': np.std(self.metrics['steady_state_metrics']['throughput'])
+        }
 
 def log_metrics_summary():
     """Log detailed metrics summary"""
