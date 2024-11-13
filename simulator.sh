@@ -236,7 +236,7 @@ run_benchmark() {
   # Validate configuration before proceeding
   if ! validate_configuration "$config"; then
       log "Skipping configuration $config due to resource constraints"
-      return 0
+      return 1  # Changed from 0 to 1 to indicate failure
   fi
 
   local num_nodes=${config%%:*}
@@ -344,12 +344,18 @@ setup_system_limits
 log "Starting benchmark suite"
 log "Log directory: $LOG_DIR"
 
+failed_configs=()
+successful_configs=()
+
 for config in "${configs[@]}"; do
   log "=========================================="
   if run_benchmark "$config"; then
-    log "Successfully completed benchmark for ${config%%:} nodes with ${config#:} processes"
+    log "Successfully completed benchmark for ${config%%:*} nodes with ${config##*:} processes"
+    successful_configs+=("$config")
   else
-    log "Failed benchmark for ${config%%:} nodes with ${config#:} processes"
+    log "Failed benchmark for ${config%%:*} nodes with ${config##*:} processes"
+    failed_configs+=("$config")
+    continue  # Skip to next configuration
   fi
   log "=========================================="
   echo ""
@@ -357,13 +363,29 @@ for config in "${configs[@]}"; do
   sleep 5
 done
 
-# Run analysis and visualization
-log "Running analysis and visualization..."
-python3 analyze_throughput.py > "${LOG_DIR}/analysis_results.log" 2>&1
+# Summary report
+log "Benchmark Summary:"
+log "----------------"
+log "Successful configurations:"
+for config in "${successful_configs[@]}"; do
+    log "  - $config"
+done
 
-# Archive analysis results and visualizations
-log "Archiving analysis results and visualizations..."
-tar -czf "${LOG_DIR}_analysis.tar.gz" "${LOG_DIR}/throughput_analysis.png" "${LOG_DIR}/analysis_summary.txt" "${LOG_DIR}/analysis_results.log"
+log "Failed configurations:"
+for config in "${failed_configs[@]}"; do
+    log "  - $config"
+done
+
+# Only run analysis if we have successful configurations
+if [ ${#successful_configs[@]} -gt 0 ]; then
+    log "Running analysis and visualization..."
+    python3 analyze_throughput.py > "${LOG_DIR}/analysis_results.log" 2>&1
+
+    log "Archiving analysis results and visualizations..."
+    tar -czf "${LOG_DIR}_analysis.tar.gz" "${LOG_DIR}/throughput_analysis.png" "${LOG_DIR}/analysis_summary.txt" "${LOG_DIR}/analysis_results.log"
+else
+    log "No successful configurations to analyze"
+fi
 
 log "All benchmarks completed"
 log "Results and logs available in: $LOG_DIR"
