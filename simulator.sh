@@ -3,6 +3,9 @@
 # Set strict error handling
 set -euo pipefail
 
+# Redirect lsof warnings to /dev/null
+export LSOF_LINUX_HASSELINUX=0
+
 # Install required Python packages
 pip install lz4
 
@@ -168,7 +171,8 @@ monitor_resources() {
 # Add this function to monitor file descriptor usage
 monitor_fd_usage() {
     while true; do
-        local used_fds=$(lsof -p $$ | wc -l)
+        # Suppress lsof warnings by redirecting stderr
+        local used_fds=$(lsof -p $$ 2>/dev/null | wc -l)
         local max_fds=$(ulimit -n)
         local fd_usage=$((used_fds * 100 / max_fds))
         

@@ -241,29 +241,20 @@ class MetricsServer:
             logger.warning(f"Could not adjust file descriptor limits: {e}")
 
     def get_available_fds(self):
-        """Get current available file descriptors"""
+        """Get current available file descriptors with error handling"""
         try:
-            import resource
-            soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
-            return max(soft - 100, 100)  # Reserve 100 FDs for system use
+            # Try to get FD count without using lsof
+            import psutil
+            process = psutil.Process()
+            used_fds = process.num_fds() if hasattr(process, 'num_fds') else 0
+            total_fds = self.get_file_limit()
+            return max(total_fds - used_fds - 100, 100)  # Reserve 100 FDs
         except Exception as e:
-            logger.warning(f"Could not get file descriptor limits: {e}")
+            logger.warning(f"Could not get detailed FD count: {e}")
             return 900  # Conservative default
 
     def get_file_limit(self):
-        """Get current process file descriptor limit"""
-        import resource
-        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        try:
-            # Try to increase limit to hard limit
-            resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
-            return hard
-        except Exception as e:
-            logger.warning(f"Could not increase file limit: {e}")
-            return soft
-
-    def get_file_limit(self):
-        """Get current process file descriptor limit with fallback"""
+        """Get current process file descriptor limit with error handling for lsof"""
         try:
             import resource
             soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
