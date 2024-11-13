@@ -55,44 +55,60 @@ log() {
 
 # Add before starting benchmarks - after log() function definition
 setup_system_limits() {
-    # Try to set highest possible limits
-    local target_limit=1048576  # Aim for 1M file descriptors
+    # Get current limits
     local current_limit=$(ulimit -n)
-    local updated=false
-
-    log "Current file descriptor limit: $current_limit"
-
-    # First try sudo to set system-wide limits
-    if command -v sudo >/dev/null 2>&1; then
-        # Update system-wide limits
-        sudo bash -c "
-            echo '*          soft    nofile     $target_limit' >> /etc/security/limits.conf
-            echo '*          hard    nofile     $target_limit' >> /etc/security/limits.conf
-            echo 'root       soft    nofile     $target_limit' >> /etc/security/limits.conf
-            echo 'root       hard    nofile     $target_limit' >> /etc/security/limits.conf
-            sysctl -w fs.file-max=$target_limit
-            sysctl -w fs.nr_open=$target_limit
-        " 2>/dev/null && updated=true
-
-        # Apply new limits to current session
-        ulimit -n "$target_limit" 2>/dev/null && updated=true
+    local target_limit=1048576  # Initial target
+    local success=false
+    
+    log "Initial file descriptor limit: $current_limit"
+    
+    # Try progressively lower limits if higher ones fail
+    for limit in 1048576 524288 262144 131072 65536 32768 16384 8192 4096 2048; do
+        if [ $limit -le $current_limit ]; then
+            continue  # Skip if less than what we already have
+        fi
+        
+        if sudo bash -c "
+            ulimit -n $limit &&
+            echo '*          soft    nofile     $limit' >> /etc/security/limits.conf &&
+            echo '*          hard    nofile     $limit' >> /etc/security/limits.conf &&
+            echo 'root       soft    nofile     $limit' >> /etc/security/limits.conf &&
+            echo 'root       hard    nofile     $limit' >> /etc/security/limits.conf &&
+            sysctl -w fs.file-max=$limit &&
+            sysctl -w fs.nr_open=$limit
+        " 2>/dev/null; then
+            target_limit=$limit
+            success=true
+            break
+        fi
+    done
+    
+    # If sudo method failed, try direct ulimit
+    if [ "$success" = false ]; then
+        for limit in 65536 32768 16384 8192 4096 2048; do
+            if ulimit -n "$limit" 2>/dev/null; then
+                target_limit=$limit
+                success=true
+                break
+            fi
+        done
     fi
-
-    # If sudo didn't work, try direct ulimit
-    if [ "$updated" = false ]; then
-        ulimit -n "$target_limit" 2>/dev/null && updated=true
-    fi
-
-    # Get final limit after attempts
+    
+    # Get final limit
     current_limit=$(ulimit -n)
     log "Final file descriptor limit: $current_limit"
-
-    # Calculate safe number of nodes based on file descriptors
-    # Each node needs ~8 file descriptors (4 for sockets, plus overhead)
-    local safe_nodes=$((current_limit/10))  # Use 10 FDs per node to be conservative
+    
+    # Calculate safe number of nodes based on available FDs
+    # Reserve 20% for system use
+    local reserved_fds=$((current_limit * 20 / 100))
+    local available_fds=$((current_limit - reserved_fds))
+    # Each node needs approximately 5 FDs
+    local safe_nodes=$((available_fds / 5))
+    
+    log "Available file descriptors: $available_fds"
     log "Safe maximum number of nodes: $safe_nodes"
-
-    # Adjust configurations based on available resources
+    
+    # Filter configurations
     local old_configs=("${configs[@]}")
     configs=()
     for config in "${old_configs[@]}"; do
@@ -103,20 +119,16 @@ setup_system_limits() {
             log "Skipping configuration with $num_nodes nodes (exceeds safe limit)"
         fi
     done
-
-    if [ ${#configs[@]} -eq 0 ]; then
-        log "ERROR: No valid configurations within system limits"
-        exit 1
-    fi
-
-    # Update system settings for networking
+    
+    # Adjust other system parameters based on available resources
+    local max_connections=$((current_limit * 80 / 100))  # Use 80% of FD limit
     if command -v sudo >/dev/null 2>&1; then
         sudo bash -c "
-            sysctl -w net.core.somaxconn=65535
-            sysctl -w net.ipv4.tcp_max_syn_backlog=65535
-            sysctl -w net.core.netdev_max_backlog=65535
-            sysctl -w net.ipv4.tcp_max_tw_buckets=2000000
+            sysctl -w net.core.somaxconn=$max_connections
+            sysctl -w net.ipv4.tcp_max_syn_backlog=$max_connections
+            sysctl -w net.core.netdev_max_backlog=$max_connections
             sysctl -w net.ipv4.tcp_fin_timeout=10
+            sysctl -w net.ipv4.tcp_tw_reuse=1
         " 2>/dev/null || true
     fi
 }

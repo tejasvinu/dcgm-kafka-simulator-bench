@@ -219,6 +219,41 @@ class MetricsServer:
         logger.info(f"Servers per pool: {self.servers_per_pool}")
         logger.info(f"Number of pools: {self.num_pools}")
 
+        # Add adaptive pool sizing based on available resources
+        self.calculate_pool_sizes()
+        
+    def calculate_pool_sizes(self):
+        """Calculate optimal pool sizes based on system resources"""
+        try:
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            
+            # Reserve 20% of FDs for system use
+            available_fds = int(soft * 0.8)
+            
+            # Each server needs approximately 5 FDs
+            fds_per_server = 5
+            
+            # Calculate max servers that can run simultaneously
+            self.max_concurrent_servers = max(1, available_fds // fds_per_server)
+            
+            # Calculate number of pools needed
+            self.pool_size = min(self.max_concurrent_servers, 
+                               max(1, self.total_nodes // (os.cpu_count() or 1)))
+            self.num_pools = (self.total_nodes + self.pool_size - 1) // self.pool_size
+            
+            logger.info(f"Available FDs: {available_fds}")
+            logger.info(f"Max concurrent servers: {self.max_concurrent_servers}")
+            logger.info(f"Pool size: {self.pool_size}")
+            logger.info(f"Number of pools: {self.num_pools}")
+            
+        except Exception as e:
+            logger.warning(f"Error calculating pool sizes: {e}")
+            # Use conservative defaults
+            self.max_concurrent_servers = 100
+            self.pool_size = 10
+            self.num_pools = (self.total_nodes + self.pool_size - 1) // self.pool_size
+
     def set_fd_limits(self):
         """Attempt to raise file descriptor limits"""
         try:
@@ -447,6 +482,53 @@ class MetricsServer:
                 logger.info(f"Successfully started pool {pool} with {len(running_servers)} servers")
             
             # Monitor all processes
+            while self.running and any(p.is_alive() for p in self.processes):
+                time.sleep(1)
+                
+        except Exception as e:
+            logger.error(f"Error in server management: {e}")
+            self.force_shutdown()
+            raise
+
+    def start_servers(self):
+        """Start servers in pools with improved resource management"""
+        try:
+            for pool_num in range(self.num_pools):
+                start_idx = pool_num * self.pool_size
+                end_idx = min(start_idx + self.pool_size, self.total_nodes)
+                
+                logger.info(f"Starting pool {pool_num + 1}/{self.num_pools} "
+                          f"(nodes {start_idx} to {end_idx - 1})")
+                
+                pool_processes = []
+                for node_id in range(start_idx, end_idx):
+                    try:
+                        port = self.start_port + node_id
+                        p = multiprocessing.Process(
+                            target=self.run_server,
+                            args=(port, node_id),
+                            name=f"server-node{node_id}"
+                        )
+                        p.start()
+                        pool_processes.append(p)
+                        time.sleep(0.1)  # Small delay between starts
+                    except Exception as e:
+                        logger.error(f"Failed to start server for node {node_id}: {e}")
+                        continue
+                
+                # Verify pool started successfully
+                time.sleep(1)
+                running = sum(1 for p in pool_processes if p.is_alive())
+                logger.info(f"Pool {pool_num + 1}: {running}/{len(pool_processes)} servers running")
+                
+                if running == 0:
+                    logger.error(f"No servers started in pool {pool_num + 1}")
+                    continue
+                
+                self.processes.extend(pool_processes)
+                self.server_pools.append(pool_processes)
+            
+            # Monitor processes
             while self.running and any(p.is_alive() for p in self.processes):
                 time.sleep(1)
                 
