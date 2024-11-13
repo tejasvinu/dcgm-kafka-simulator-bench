@@ -201,6 +201,55 @@ class MetricsServer:
         logger.info(f"Max servers per pool: {self.max_servers_per_pool}")
         logger.info(f"Number of pools required: {self.num_pools}")
 
+        # Improve file descriptor management
+        self.set_fd_limits()
+        self.available_fds = self.get_available_fds()
+        self.fds_per_server = 10  # Conservative estimate
+        self.max_concurrent_servers = max(1, self.available_fds // self.fds_per_server)
+        
+        # Adjust server pools based on available FDs
+        self.servers_per_pool = min(
+            self.max_concurrent_servers,
+            max(1, total_nodes // (os.cpu_count() or 1))
+        )
+        self.num_pools = (total_nodes + self.servers_per_pool - 1) // self.servers_per_pool
+
+        logger.info(f"Available file descriptors: {self.available_fds}")
+        logger.info(f"Maximum concurrent servers: {self.max_concurrent_servers}")
+        logger.info(f"Servers per pool: {self.servers_per_pool}")
+        logger.info(f"Number of pools: {self.num_pools}")
+
+    def set_fd_limits(self):
+        """Attempt to raise file descriptor limits"""
+        try:
+            import resource
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            target = 1048576  # Target 1M file descriptors
+            
+            # Try to set to target or hard limit
+            try:
+                resource.setrlimit(resource.RLIMIT_NOFILE, (target, target))
+            except ValueError:
+                try:
+                    resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+                except ValueError:
+                    pass  # Keep current limits if we can't increase them
+            
+            new_soft, new_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            logger.info(f"File descriptor limits: soft={new_soft}, hard={new_hard}")
+        except Exception as e:
+            logger.warning(f"Could not adjust file descriptor limits: {e}")
+
+    def get_available_fds(self):
+        """Get current available file descriptors"""
+        try:
+            import resource
+            soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+            return max(soft - 100, 100)  # Reserve 100 FDs for system use
+        except Exception as e:
+            logger.warning(f"Could not get file descriptor limits: {e}")
+            return 900  # Conservative default
+
     def get_file_limit(self):
         """Get current process file descriptor limit"""
         import resource
@@ -301,6 +350,46 @@ class MetricsServer:
             logger.error(f"Error running server for node {node_id} on port {port}: {e}")
         finally:
             logger.info(f"Shutting down server for node {node_id} on port {port}")
+
+    def run_server(self, port: int, node_id: int):
+        """Run server with improved resource management"""
+        try:
+            # Set socket options for better resource handling
+            server = make_server(
+                self.host, 
+                port, 
+                self.create_app_for_node(node_id),
+                handler_class=OptimizedWSGIRequestHandler
+            )
+            
+            server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            server.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            
+            # Set non-blocking mode
+            server.socket.setblocking(False)
+            
+            logger.info(f"Server for node {node_id} listening on port {port}")
+            
+            while self.running:
+                try:
+                    server.handle_request()
+                except socket.error as e:
+                    if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                        logger.error(f"Socket error for node {node_id}: {e}")
+                        raise
+                    time.sleep(0.1)
+                except Exception as e:
+                    logger.error(f"Error handling request for node {node_id}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Fatal error for node {node_id}: {e}")
+        finally:
+            try:
+                server.server_close()
+            except Exception:
+                pass
 
     def signal_handler(self, signum, frame):
         """Handle shutdown signals"""

@@ -52,62 +52,69 @@ log() {
 
 # Add before starting benchmarks - after log() function definition
 setup_system_limits() {
+    # Try to set highest possible limits
+    local target_limit=1048576  # Aim for 1M file descriptors
     local current_limit=$(ulimit -n)
-    local target_limit=65536
     local updated=false
 
     log "Current file descriptor limit: $current_limit"
 
-    # First try setting user limits without sudo
-    if ulimit -n "$target_limit" 2>/dev/null; then
-        log "Successfully set file descriptor limit to $target_limit"
-        updated=true
+    # First try sudo to set system-wide limits
+    if command -v sudo >/dev/null 2>&1; then
+        # Update system-wide limits
+        sudo bash -c "
+            echo '*          soft    nofile     $target_limit' >> /etc/security/limits.conf
+            echo '*          hard    nofile     $target_limit' >> /etc/security/limits.conf
+            echo 'root       soft    nofile     $target_limit' >> /etc/security/limits.conf
+            echo 'root       hard    nofile     $target_limit' >> /etc/security/limits.conf
+            sysctl -w fs.file-max=$target_limit
+            sysctl -w fs.nr_open=$target_limit
+        " 2>/dev/null && updated=true
+
+        # Apply new limits to current session
+        ulimit -n "$target_limit" 2>/dev/null && updated=true
     fi
 
-    # If we couldn't set the limit and have sudo, try with sudo
-    if [ "$updated" = false ] && command -v sudo >/dev/null 2>&1; then
-        log "Attempting to set system limits with sudo..."
-        
-        # Try to update system limits
-        if sudo sysctl -w fs.file-max="$target_limit" >/dev/null 2>&1; then
-            if sudo sysctl -w fs.nr_open="$target_limit" >/dev/null 2>&1; then
-                log "Successfully updated system-wide limits"
-            fi
-        fi
-
-        # Try to update current session limits with sudo
-        if sudo bash -c "ulimit -n $target_limit" >/dev/null 2>&1; then
-            log "Successfully set session file descriptor limit"
-            updated=true
-        fi
-    fi
-
+    # If sudo didn't work, try direct ulimit
     if [ "$updated" = false ]; then
-        log "WARNING: Could not increase file descriptor limits"
-        log "Current limit of $current_limit will be used"
-        
-        # Calculate max nodes based on current limit
-        local max_nodes=$((current_limit/4))  # Using 4 file descriptors per node as estimate
-        log "Based on current limits, recommended max nodes: $max_nodes"
-        
-        # Filter configs array to only include supported node counts
-        local old_configs=("${configs[@]}")
-        configs=()
-        for config in "${old_configs[@]}"; do
-            local num_nodes=${config%%:*}
-            if [ "$num_nodes" -le "$max_nodes" ]; then
-                configs+=("$config")
-            else
-                log "Skipping configuration with $num_nodes nodes (exceeds limit)"
-            fi
-        done
-        
-        if [ ${#configs[@]} -eq 0 ]; then
-            log "ERROR: No valid configurations remain within system limits"
-            exit 1
+        ulimit -n "$target_limit" 2>/dev/null && updated=true
+    fi
+
+    # Get final limit after attempts
+    current_limit=$(ulimit -n)
+    log "Final file descriptor limit: $current_limit"
+
+    # Calculate safe number of nodes based on file descriptors
+    # Each node needs ~8 file descriptors (4 for sockets, plus overhead)
+    local safe_nodes=$((current_limit/10))  # Use 10 FDs per node to be conservative
+    log "Safe maximum number of nodes: $safe_nodes"
+
+    # Adjust configurations based on available resources
+    local old_configs=("${configs[@]}")
+    configs=()
+    for config in "${old_configs[@]}"; do
+        local num_nodes=${config%%:*}
+        if [ "$num_nodes" -le "$safe_nodes" ]; then
+            configs+=("$config")
+        else
+            log "Skipping configuration with $num_nodes nodes (exceeds safe limit)"
         fi
-        
-        log "Proceeding with ${#configs[@]} valid configurations"
+    done
+
+    if [ ${#configs[@]} -eq 0 ]; then
+        log "ERROR: No valid configurations within system limits"
+        exit 1
+    fi
+
+    # Update system settings for networking
+    if command -v sudo >/dev/null 2>&1; then
+        sudo bash -c "
+            sysctl -w net.core.somaxconn=65535
+            sysctl -w net.ipv4.tcp_max_syn_backlog=65535
+            sysctl -w net.core.netdev_max_backlog=65535
+            sysctl -w net.ipv4.tcp_max_tw_buckets=2000000
+            sysctl -w net.ipv4.tcp_fin_timeout=10
+        " 2>/dev/null || true
     fi
 }
 
@@ -116,16 +123,12 @@ validate_configuration() {
     local config=$1
     local num_nodes=${config%%:*}
     local current_limit=$(ulimit -n)
-    local estimated_fds=$((num_nodes * 4))  # Estimate 4 FDs per node
+    local estimated_fds=$((num_nodes * 10))  # 10 FDs per node
     
-    if [ "$estimated_fds" -gt "$((current_limit * 9 / 10))" ]; then
-        log "WARNING: Configuration with $num_nodes nodes may exceed 90% of file descriptor limit ($current_limit)"
-        log "This could lead to stability issues"
-        read -p "Do you want to continue with this configuration? (y/N) " -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            return 1
-        fi
+    if [ "$estimated_fds" -gt "$((current_limit * 8 / 10))" ]; then
+        log "ERROR: Configuration with $num_nodes nodes requires approximately $estimated_fds file descriptors"
+        log "Current limit ($current_limit) is insufficient"
+        return 1
     fi
     return 0
 }
@@ -162,6 +165,22 @@ monitor_resources() {
     done
 }
 
+# Add this function to monitor file descriptor usage
+monitor_fd_usage() {
+    while true; do
+        local used_fds=$(lsof -p $$ | wc -l)
+        local max_fds=$(ulimit -n)
+        local fd_usage=$((used_fds * 100 / max_fds))
+        
+        if [ "$fd_usage" -gt 80 ]; then
+            log "WARNING: High file descriptor usage: ${fd_usage}% ($used_fds/$max_fds)"
+        fi
+        
+        echo "$(date +%s),$used_fds,$max_fds" >> "${LOG_DIR}/fd_usage.csv"
+        sleep 30
+    done
+}
+
 # Function to cleanup processes
 cleanup() {
   log "Cleaning up processes..."
@@ -177,6 +196,11 @@ cleanup() {
   # Stop resource monitoring
   if [[ -n "${monitor_pid}" ]]; then
       kill -9 "${monitor_pid}" 2>/dev/null || true
+  fi
+  
+  # Stop FD monitoring
+  if [[ -n "${fd_monitor_pid}" ]]; then
+      kill -9 "${fd_monitor_pid}" 2>/dev/null || true
   fi
   
   # Archive logs
@@ -294,6 +318,10 @@ run_benchmark() {
 # Start resource monitoring in background
 monitor_resources &
 monitor_pid=$!
+
+# Start FD monitoring in background
+monitor_fd_usage &
+fd_monitor_pid=$!
 
 # Main benchmark execution
 setup_system_limits
