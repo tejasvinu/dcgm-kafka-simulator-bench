@@ -243,10 +243,9 @@ run_benchmark() {
   log "Starting benchmark for $num_nodes nodes with $num_processes processes..."
 
   # Modified server startup section
-  log "Starting metrics server on ports starting from $SERVER_PORT with $num_nodes nodes..."
+  log "Starting metrics server on port $SERVER_PORT for $num_nodes nodes..."
   python3 "$METRICS_SERVER.py" \
-    --num_ports "$num_nodes" \
-    --start_port "$SERVER_PORT" \
+    --port "$SERVER_PORT" \
     --total_nodes "$num_nodes" > "$server_log" 2>&1 &
   server_pid=$!
 

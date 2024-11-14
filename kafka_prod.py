@@ -127,12 +127,11 @@ async def fetch_metrics(session, url):
 
 async def fetch_and_send_metrics(producer, session, node_id, num_nodes, num_processes):
     """Fetches metrics from a single node and sends them to Kafka."""
-    port = 50000 + node_id  # Each node has its own port
-    logger.info(f"Process handling node {node_id} on port {port}")
+    logger.info(f"Process handling node {node_id}")
 
     while True:
         try:
-            url = f"http://localhost:{port}/metrics"
+            url = f"http://localhost:50000/metrics/{node_id}"  # Updated URL format
             metrics = await fetch_metrics(session, url)
             parsed_metrics = parse_dcgm_metrics(metrics)
             
