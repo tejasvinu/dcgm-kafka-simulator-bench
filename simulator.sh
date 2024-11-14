@@ -57,23 +57,17 @@ log() {
 setup_system_limits() {
     # Get current limits
     local current_limit=$(ulimit -n)
-    local target_limit=1048576  # Initial target
+    local target_limit=1048576  # Initial target (1M file descriptors)
     local success=false
     
     log "Initial file descriptor limit: $current_limit"
     
     # Try progressively lower limits if higher ones fail
-    for limit in 1048576 524288 262144 131072 65536 32768 16384 8192 4096 2048; do
-        if [ $limit -le $current_limit ]; then
-            continue  # Skip if less than what we already have
-        fi
-        
+    for limit in 1048576 524288 262144 131072 65536 32768; do
         if sudo bash -c "
             ulimit -n $limit &&
             echo '*          soft    nofile     $limit' >> /etc/security/limits.conf &&
             echo '*          hard    nofile     $limit' >> /etc/security/limits.conf &&
-            echo 'root       soft    nofile     $limit' >> /etc/security/limits.conf &&
-            echo 'root       hard    nofile     $limit' >> /etc/security/limits.conf &&
             sysctl -w fs.file-max=$limit &&
             sysctl -w fs.nr_open=$limit
         " 2>/dev/null; then
@@ -83,9 +77,9 @@ setup_system_limits() {
         fi
     done
     
-    # If sudo method failed, try direct ulimit
+    # If sudo fails, try direct ulimit
     if [ "$success" = false ]; then
-        for limit in 65536 32768 16384 8192 4096 2048; do
+        for limit in 65536 32768 16384 8192 4096; do
             if ulimit -n "$limit" 2>/dev/null; then
                 target_limit=$limit
                 success=true
@@ -94,21 +88,25 @@ setup_system_limits() {
         done
     fi
     
-    # Get final limit
-    current_limit=$(ulimit -n)
-    log "Final file descriptor limit: $current_limit"
+    # Set TCP parameters for better scaling
+    if command -v sudo >/dev/null 2>&1; then
+        sudo sysctl -w net.ipv4.tcp_fin_timeout=30
+        sudo sysctl -w net.core.somaxconn=65535
+        sudo sysctl -w net.ipv4.tcp_max_syn_backlog=65535
+    fi
     
     # Calculate safe number of nodes based on available FDs
     # Reserve 20% for system use
-    local reserved_fds=$((current_limit * 20 / 100))
-    local available_fds=$((current_limit - reserved_fds))
-    # Each node needs approximately 5 FDs
-    local safe_nodes=$((available_fds / 5))
+    local reserved_fds=$((target_limit * 20 / 100))
+    local available_fds=$((target_limit - reserved_fds))
+    # Each node needs approximately 10 FDs (conservative estimate)
+    local safe_nodes=$((available_fds / 10))
     
+    log "Final file descriptor limit: $target_limit"
     log "Available file descriptors: $available_fds"
     log "Safe maximum number of nodes: $safe_nodes"
     
-    # Filter configurations
+    # Filter configurations based on safe limit
     local old_configs=("${configs[@]}")
     configs=()
     for config in "${old_configs[@]}"; do
@@ -119,18 +117,6 @@ setup_system_limits() {
             log "Skipping configuration with $num_nodes nodes (exceeds safe limit)"
         fi
     done
-    
-    # Adjust other system parameters based on available resources
-    local max_connections=$((current_limit * 80 / 100))  # Use 80% of FD limit
-    if command -v sudo >/dev/null 2>&1; then
-        sudo bash -c "
-            sysctl -w net.core.somaxconn=$max_connections
-            sysctl -w net.ipv4.tcp_max_syn_backlog=$max_connections
-            sysctl -w net.core.netdev_max_backlog=$max_connections
-            sysctl -w net.ipv4.tcp_fin_timeout=10
-            sysctl -w net.ipv4.tcp_tw_reuse=1
-        " 2>/dev/null || true
-    fi
 }
 
 # Add this function to validate configuration before starting servers
@@ -256,7 +242,7 @@ run_benchmark() {
 
   log "Starting benchmark for $num_nodes nodes with $num_processes processes..."
 
-  # Start the metrics server with num_nodes number of ports (one per node)
+  # Modified server startup section
   log "Starting metrics server on ports starting from $SERVER_PORT with $num_nodes nodes..."
   python3 "$METRICS_SERVER.py" \
     --num_ports "$num_nodes" \
