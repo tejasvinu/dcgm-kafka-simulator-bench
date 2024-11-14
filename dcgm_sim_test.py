@@ -21,7 +21,6 @@ class MetricsCache:
     def __init__(self, ttl_seconds=60):
         self.cache = {}
         self.ttl = ttl_seconds
-        self.base_metrics = self._load_base_metrics()
         
     def get_metrics(self, node_id: int) -> str:
         """Get metrics for a specific node, with randomization for simulation"""
