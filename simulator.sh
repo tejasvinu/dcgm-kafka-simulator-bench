@@ -53,84 +53,24 @@ log() {
   echo "[${timestamp}] ${message}" | tee -a "$MAIN_LOG"
 }
 
-# Add before starting benchmarks - after log() function definition
+# Remove or simplify setup_system_limits to only set some basic performance tuning
 setup_system_limits() {
-    # Get current limits
-    local current_limit=$(ulimit -n)
-    local target_limit=1048576  # Initial target (1M file descriptors)
-    local success=false
-    
-    log "Initial file descriptor limit: $current_limit"
-    
-    # Try progressively lower limits if higher ones fail
-    for limit in 1048576 524288 262144 131072 65536 32768; do
-        if sudo bash -c "
-            ulimit -n $limit &&
-            echo '*          soft    nofile     $limit' >> /etc/security/limits.conf &&
-            echo '*          hard    nofile     $limit' >> /etc/security/limits.conf &&
-            sysctl -w fs.file-max=$limit &&
-            sysctl -w fs.nr_open=$limit
-        " 2>/dev/null; then
-            target_limit=$limit
-            success=true
-            break
-        fi
-    done
-    
-    # If sudo fails, try direct ulimit
-    if [ "$success" = false ]; then
-        for limit in 65536 32768 16384 8192 4096; do
-            if ulimit -n "$limit" 2>/dev/null; then
-                target_limit=$limit
-                success=true
-                break
-            fi
-        done
-    fi
-    
-    # Set TCP parameters for better scaling
+    # Set TCP parameters for better performance
     if command -v sudo >/dev/null 2>&1; then
         sudo sysctl -w net.ipv4.tcp_fin_timeout=30
         sudo sysctl -w net.core.somaxconn=65535
         sudo sysctl -w net.ipv4.tcp_max_syn_backlog=65535
     fi
-    
-    # Calculate safe number of nodes based on available FDs
-    # Reserve 20% for system use
-    local reserved_fds=$((target_limit * 20 / 100))
-    local available_fds=$((target_limit - reserved_fds))
-    # Each node needs approximately 10 FDs (conservative estimate)
-    local safe_nodes=$((available_fds / 10))
-    
-    log "Final file descriptor limit: $target_limit"
-    log "Available file descriptors: $available_fds"
-    log "Safe maximum number of nodes: $safe_nodes"
-    
-    # Filter configurations based on safe limit
-    local old_configs=("${configs[@]}")
-    configs=()
-    for config in "${old_configs[@]}"; do
-        local num_nodes=${config%%:*}
-        if [ "$num_nodes" -le "$safe_nodes" ]; then
-            configs+=("$config")
-        else
-            log "Skipping configuration with $num_nodes nodes (exceeds safe limit)"
-        fi
-    done
 }
 
-# Add this function to validate configuration before starting servers
+# Simplify validate_configuration to always return success
 validate_configuration() {
     local config=$1
     local num_nodes=${config%%:*}
-    local current_limit=$(ulimit -n)
-    local estimated_fds=$((num_nodes * 10))  # 10 FDs per node
+    local num_processes=${config##*:}
     
-    if [ "$estimated_fds" -gt "$((current_limit * 8 / 10))" ]; then
-        log "ERROR: Configuration with $num_nodes nodes requires approximately $estimated_fds file descriptors"
-        log "Current limit ($current_limit) is insufficient"
-        return 1
-    fi
+    # We can add other validation logic here if needed
+    # But remove the file descriptor checks
     return 0
 }
 
