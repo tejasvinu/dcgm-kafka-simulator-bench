@@ -28,17 +28,33 @@ def analyze_log(logfile, node_size):
     with open(logfile) as f:
         for line in f:
             if "Throughput:" in line:
-                # Extract timestamp and throughput
-                timestamp = datetime.strptime(line[:19], '%Y-%m-%d %H:%M:%S')
-                throughput = float(line.split("Throughput: ")[1].split()[0])
-                throughputs.append(throughput)
-                timestamps.append(timestamp)
+                try:
+                    # Extract timestamp from the beginning of the line
+                    timestamp_str = line.split(' - ')[0]
+                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S,%f')
+                    
+                    # Extract throughput value
+                    throughput = float(line.split("Throughput: ")[1].split()[0])
+                    
+                    throughputs.append(throughput)
+                    timestamps.append(timestamp)
+                except (ValueError, IndexError) as e:
+                    print(f"Error parsing line: {line.strip()}")
+                    continue
+    
+    if not throughputs:
+        print(f"Warning: No throughput data found in {logfile}")
+        return pd.DataFrame()
     
     df = pd.DataFrame({
         'timestamp': timestamps,
         'throughput': throughputs,
         'node_size': node_size
     })
+    
+    # Only use data after warmup period
+    warmup_time = df['timestamp'].min() + pd.Timedelta(minutes=5)
+    df = df[df['timestamp'] > warmup_time]
     
     return df
 

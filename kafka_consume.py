@@ -6,6 +6,7 @@ from aiokafka import AIOKafkaConsumer
 from datetime import datetime, timedelta
 import os
 import numpy as np
+from collections import defaultdict
 
 # Configure logging
 logging.basicConfig(
@@ -18,171 +19,100 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Kafka Configuration
-bootstrap_servers = ['10.180.8.24:9092', '10.180.8.24:9093', '10.180.8.24:9094']
-topic_name = 'dcgm-metrics-test'
-group_id = 'my-group-1'
-
-# Add consumer configurations
-consumer_config = {
-    'fetch_max_bytes': 52428800,  # 50MB
-    'max_partition_fetch_bytes': 1048576,  # 1MB
-    'fetch_max_wait_ms': 500,
-    'enable_auto_commit': False,
-    'max_poll_records': 500
-}
-
-# Metrics Tracking
-metrics = {
-    'messages_received': 0,
-    'bytes_received': 0,
-    'processing_time': timedelta(0),
-    'errors': 0,
-    'message_sizes': [],
-    'processing_times': [],
-    'error_types': {},
-    'batch_sizes': [],
-    'latencies': [],
-    'messages_per_node': {},
-    'messages_per_gpu': {},
-    'last_metrics_time': datetime.now(),
-    'metrics_interval': 30  # Log metrics every 60 seconds
-}
+# Constants
+STATS_INTERVAL = 30  # Log stats every 30 seconds
+WARMUP_PERIOD = 300  # 5 minutes warmup
 
 class MetricsCollector:
     def __init__(self):
         self.start_time = time.time()
-        self.metrics = {
-            'warmup_complete': False,
-            'steady_state_metrics': {
-                'throughput': [],
-                'latency': [],
-                'processing_time': []
-            }
-        }
-
-    def update(self, msg_count, bytes_received, latency):
+        self.message_count = 0
+        self.bytes_received = 0
+        self.message_sizes = []
+        self.latencies = []
+        self.nodes_seen = set()
+        self.last_report_time = time.time()
+        self.warmup_complete = False
+        self.metrics_by_node = defaultdict(int)
+        
+    def record_message(self, msg, value):
         current_time = time.time()
-        elapsed = current_time - self.start_time
-
-        # After warmup period, collect steady-state metrics
-        if elapsed > WARMUP_PERIOD:
-            if not self.metrics['warmup_complete']:
-                self.metrics['warmup_complete'] = True
-                logger.info("Entering steady state metrics collection")
-            
-            self.metrics['steady_state_metrics']['throughput'].append(msg_count)
-            self.metrics['steady_state_metrics']['latency'].append(latency)
-
-    def get_summary(self):
-        if not self.metrics['steady_state_metrics']['throughput']:
-            return "No steady-state metrics available"
-
-        return {
-            'avg_throughput': np.mean(self.metrics['steady_state_metrics']['throughput']),
-            'p95_latency': np.percentile(self.metrics['steady_state_metrics']['latency'], 95),
-            'std_throughput': np.std(self.metrics['steady_state_metrics']['throughput'])
-        }
-
-def log_metrics_summary():
-    """Log detailed metrics summary"""
-    current_time = datetime.now()
-    elapsed_time = (current_time - metrics['last_metrics_time']).total_seconds()
-    
-    # Calculate statistics
-    avg_msg_size = sum(metrics['message_sizes']) / len(metrics['message_sizes']) if metrics['message_sizes'] else 0
-    avg_process_time = sum(metrics['processing_times']) / len(metrics['processing_times']) if metrics['processing_times'] else 0
-    avg_latency = sum(metrics['latencies']) / len(metrics['latencies']) if metrics['latencies'] else 0
-    throughput = metrics['messages_received'] / elapsed_time if elapsed_time > 0 else 0
-    
-    logger.info("\n=== Metrics Summary ===")
-    logger.info(f"Messages Received: {metrics['messages_received']}")
-    logger.info(f"Bytes Received: {metrics['bytes_received']:,} bytes")
-    logger.info(f"Average Message Size: {avg_msg_size:.2f} bytes")
-    logger.info(f"Average Processing Time: {avg_process_time:.4f} seconds")
-    logger.info(f"Average Latency: {avg_latency:.4f} seconds")
-    logger.info(f"Throughput: {throughput:.2f} messages/second")
-    logger.info(f"Total Errors: {metrics['errors']}")
-    
-    # Log per-node statistics
-    logger.info("\nMessages per Node:")
-    for node, count in sorted(metrics['messages_per_node'].items()):
-        logger.info(f"  Node {node}: {count:,} messages")
-    
-    # Log per-GPU statistics
-    logger.info("\nMessages per GPU:")
-    for gpu, count in sorted(metrics['messages_per_gpu'].items()):
-        logger.info(f"  GPU {gpu}: {count:,} messages")
-    
-    # Log error types if any
-    if metrics['error_types']:
-        logger.info("\nError Types:")
-        for error_type, count in metrics['error_types'].items():
-            logger.info(f"  {error_type}: {count}")
-    
-    logger.info("=" * 50 + "\n")
-    metrics['last_metrics_time'] = current_time
-
-async def process_message(msg):
-    """Process a single message and update metrics"""
-    try:
-        start_time = time.monotonic()
-        value = json.loads(msg.value.decode('utf-8'))
+        msg_size = len(msg.value)
         
-        # Extract node and GPU information
+        # Extract node information from the message
         hostname = value.get('Hostname', 'unknown')
-        gpu = value.get('gpu', 'unknown')
+        if hostname != 'unknown':
+            self.nodes_seen.add(hostname)
+            self.metrics_by_node[hostname] += 1
         
-        # Update metrics
-        metrics['messages_received'] += 1
-        metrics['bytes_received'] += len(msg.value)
-        metrics['message_sizes'].append(len(msg.value))
+        # Record basic metrics
+        self.message_count += 1
+        self.bytes_received += msg_size
+        self.message_sizes.append(msg_size)
         
-        # Update node and GPU counters
-        metrics['messages_per_node'][hostname] = metrics['messages_per_node'].get(hostname, 0) + 1
-        metrics['messages_per_gpu'][gpu] = metrics['messages_per_gpu'].get(gpu, 0) + 1
-        
-        # Calculate and store processing time
-        process_time = time.monotonic() - start_time
-        metrics['processing_times'].append(process_time)
-        metrics['processing_time'] += timedelta(seconds=process_time)
-        
-        # Calculate message latency if timestamp available
+        # Calculate latency if timestamp available
         if 'timestamp' in value:
             try:
                 msg_time = datetime.fromisoformat(value['timestamp'])
                 latency = (datetime.now() - msg_time).total_seconds()
-                metrics['latencies'].append(latency)
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Invalid timestamp format: {e}")
+                self.latencies.append(latency)
+            except ValueError:
+                pass
         
-        # Log detailed message info every 1000 messages
-        if metrics['messages_received'] % 1000 == 0:
-            logger.debug(f"Processed message: {value['metric_name']} from GPU {gpu} on {hostname}")
+        # Check if it's time to log stats
+        if current_time - self.last_report_time >= STATS_INTERVAL:
+            self.log_stats()
+            self.last_report_time = current_time
+    
+    def log_stats(self):
+        elapsed = time.time() - self.start_time
         
-        # Log metrics summary periodically
-        if (datetime.now() - metrics['last_metrics_time']).seconds >= metrics['metrics_interval']:
-            log_metrics_summary()
+        # Check if warmup period is complete
+        if not self.warmup_complete and elapsed > WARMUP_PERIOD:
+            logger.info("Warmup period complete, resetting metrics")
+            self.reset_metrics()
+            self.warmup_complete = True
+            return
+        
+        if not self.warmup_complete:
+            logger.info("Still in warmup period, stats will reset after warmup")
+            return
             
-    except json.JSONDecodeError as e:
-        metrics['errors'] += 1
-        metrics['error_types']['JSONDecodeError'] = metrics['error_types'].get('JSONDecodeError', 0) + 1
-        logger.error(f"JSON decode error: {e}")
-    except Exception as e:
-        metrics['errors'] += 1
-        error_type = type(e).__name__
-        metrics['error_types'][error_type] = metrics['error_types'].get(error_type, 0) + 1
-        logger.error(f"Error processing message: {e}")
+        # Calculate statistics
+        interval = time.time() - self.last_report_time
+        msgs_per_sec = self.message_count / interval if interval > 0 else 0
+        mb_per_sec = (self.bytes_received / 1024 / 1024) / interval if interval > 0 else 0
+        avg_latency = np.mean(self.latencies) if self.latencies else 0
+        p95_latency = np.percentile(self.latencies, 95) if self.latencies else 0
+        
+        # Log detailed statistics
+        logger.info(
+            f"Stats Summary:\n"
+            f"Throughput: {msgs_per_sec:.2f} msgs/sec\n"
+            f"Bandwidth: {mb_per_sec:.2f} MB/sec\n"
+            f"Average Latency: {avg_latency:.3f} sec\n"
+            f"P95 Latency: {p95_latency:.3f} sec\n"
+            f"Total Messages: {self.message_count}\n"
+            f"Unique Nodes: {len(self.nodes_seen)}\n"
+            f"Messages per Node: {dict(self.metrics_by_node)}"
+        )
+    
+    def reset_metrics(self):
+        self.message_count = 0
+        self.bytes_received = 0
+        self.message_sizes = []
+        self.latencies = []
+        self.metrics_by_node.clear()
+        self.last_report_time = time.time()
 
 async def consume():
-    """Main consumer function"""
-    logger.info("Starting Kafka consumer...")
+    collector = MetricsCollector()
     consumer = AIOKafkaConsumer(
-        topic_name,
-        bootstrap_servers=bootstrap_servers,
-        group_id=group_id,
+        'dcgm-metrics-test',
+        bootstrap_servers=['10.180.8.24:9092', '10.180.8.24:9093', '10.180.8.24:9094'],
+        group_id='my-group-1',
         auto_offset_reset='earliest',
-        **consumer_config
+        value_deserializer=lambda m: json.loads(m.decode('utf-8'))
     )
     
     try:
@@ -190,25 +120,24 @@ async def consume():
         logger.info("Consumer started successfully")
         
         async for msg in consumer:
-            await process_message(msg)
-            
-    except Exception as e:
-        logger.error(f"Consumer error: {e}")
-        raise
-    finally:
-        logger.info("Stopping consumer...")
-        await consumer.stop()
-        log_metrics_summary()  # Final metrics summary
-        logger.info("Consumer stopped")
-
-async def main():
-    try:
-        await consume()
+            try:
+                collector.record_message(msg, msg.value)
+            except Exception as e:
+                logger.error(f"Error processing message: {e}")
+                
     except asyncio.CancelledError:
         logger.info("Consumer cancelled by user")
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.error(f"Consumer error: {e}")
+    finally:
+        # Log final statistics
+        collector.log_stats()
+        await consumer.stop()
+        logger.info("Consumer stopped")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(consume())
+    except KeyboardInterrupt:
+        logger.info("Shutting down...")
 
