@@ -7,6 +7,7 @@ import seaborn as sns
 from scipy import stats
 import glob
 import os
+import logging
 
 def get_most_recent_logs_dir():
     base_dir = 'benchmark_logs'
@@ -21,7 +22,23 @@ def get_most_recent_logs_dir():
     dirs.sort(key=lambda x: os.path.getctime(os.path.join(base_dir, x)), reverse=True)
     return os.path.join(base_dir, dirs[0])
 
-def analyze_log(logfile, node_size):
+def setup_logging(log_dir):
+    """Setup logging for the analysis script"""
+    log_file = os.path.join(log_dir, 'analysis.log')
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
+
+def analyze_log(logfile, node_size, logger):
+    """Modified analyze_log function with logging"""
+    logger.info(f"Analyzing log file for {node_size} nodes: {logfile}")
     throughputs = []
     timestamps = []
     
@@ -43,7 +60,7 @@ def analyze_log(logfile, node_size):
                     continue
     
     if not throughputs:
-        print(f"Warning: No throughput data found in {logfile}")
+        logger.warning(f"No throughput data found in {logfile}")
         return pd.DataFrame()
     
     df = pd.DataFrame({
@@ -56,6 +73,7 @@ def analyze_log(logfile, node_size):
     warmup_time = df['timestamp'].min() + pd.Timedelta(minutes=5)
     df = df[df['timestamp'] > warmup_time]
     
+    logger.info(f"Found {len(throughputs)} throughput measurements for {node_size} nodes")
     return df
 
 def analyze_steady_state(df):
@@ -120,6 +138,8 @@ def plot_throughput_analysis(df):
 if __name__ == "__main__":
     try:
         logs_dir = get_most_recent_logs_dir()
+        logger = setup_logging(logs_dir)
+        logger.info(f"Starting analysis of logs in {logs_dir}")
         all_data = pd.DataFrame()
         log_files = glob.glob(os.path.join(logs_dir, 'consumer_*_nodes.log'))
         
@@ -128,7 +148,7 @@ if __name__ == "__main__":
         
         for logfile in log_files:
             node_size = int(logfile.split('_')[-2])
-            df = analyze_log(logfile, node_size)
+            df = analyze_log(logfile, node_size, logger)
             all_data = pd.concat([all_data, df], ignore_index=True)
 
         # Analyze steady state
@@ -158,6 +178,10 @@ if __name__ == "__main__":
             f.write("\n\nRegression Results:\n")
             f.write(reg.to_string())
         
+        logger.info("Analysis completed successfully")
+        logger.info(f"Results saved to {logs_dir}/analysis_summary.txt")
+        logger.info(f"Plots saved to {logs_dir}/throughput_analysis.png")
+        
     except Exception as e:
-        print(f"Error during analysis: {e}")
+        logger.error(f"Error during analysis: {e}", exc_info=True)
         raise

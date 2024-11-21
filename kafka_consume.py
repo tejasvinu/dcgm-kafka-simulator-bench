@@ -8,16 +8,39 @@ import os
 import numpy as np
 from collections import defaultdict
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('kafka_consumer.log'),
+# Configure logging with timestamp in filename
+def setup_logging(node_size=None):
+    log_dir = "benchmark_logs"
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # Get most recent benchmark directory
+    benchmark_dirs = [d for d in os.listdir(log_dir) if os.path.isdir(os.path.join(log_dir, d))]
+    if not benchmark_dirs:
+        raise RuntimeError("No benchmark directory found")
+    
+    latest_dir = max(benchmark_dirs, key=lambda x: os.path.getctime(os.path.join(log_dir, x)))
+    log_path = os.path.join(log_dir, latest_dir)
+    
+    # Set up file handler with appropriate name
+    if node_size:
+        log_file = os.path.join(log_path, f'consumer_{node_size}_nodes.log')
+    else:
+        log_file = os.path.join(log_path, 'consumer.log')
+    
+    # Configure logging
+    handlers = [
+        logging.FileHandler(log_file),
         logging.StreamHandler()
     ]
-)
-logger = logging.getLogger(__name__)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=handlers
+    )
+    
+    return logging.getLogger(__name__)
 
 # Constants
 STATS_INTERVAL = 30  # Log stats every 30 seconds
@@ -35,36 +58,43 @@ class MetricsCollector:
         self.warmup_complete = False
         self.metrics_by_node = defaultdict(int)
         
-    def record_message(self, msg, value):
-        current_time = time.time()
-        msg_size = len(msg.value)
-        
-        # Extract node information from the message
-        hostname = value.get('Hostname', 'unknown')
-        if hostname != 'unknown':
-            self.nodes_seen.add(hostname)
-            self.metrics_by_node[hostname] += 1
-        
-        # Record basic metrics
-        self.message_count += 1
-        self.bytes_received += msg_size
-        self.message_sizes.append(msg_size)
-        
-        # Calculate latency if timestamp available
-        if 'timestamp' in value:
-            try:
-                msg_time = datetime.fromisoformat(value['timestamp'])
-                latency = (datetime.now() - msg_time).total_seconds()
-                self.latencies.append(latency)
-            except ValueError:
-                pass
-        
-        # Check if it's time to log stats
-        if current_time - self.last_report_time >= STATS_INTERVAL:
-            self.log_stats()
-            self.last_report_time = current_time
-    
-    def log_stats(self):
+    async def record_message(self, msg):
+        try:
+            current_time = time.time()
+            msg_size = len(msg.value)
+            value = json.loads(msg.value.decode('utf-8'))
+            
+            # Extract node information
+            hostname = value.get('Hostname', 'unknown')
+            if hostname != 'unknown':
+                self.nodes_seen.add(hostname)
+                self.metrics_by_node[hostname] += 1
+            
+            # Record basic metrics
+            self.message_count += 1
+            self.bytes_received += msg_size
+            self.message_sizes.append(msg_size)
+            
+            # Calculate latency if timestamp available
+            if 'timestamp' in value:
+                try:
+                    msg_time = datetime.fromisoformat(value['timestamp'])
+                    latency = (datetime.now() - msg_time).total_seconds()
+                    self.latencies.append(latency)
+                except ValueError:
+                    pass
+            
+            # Check if it's time to log stats
+            if current_time - self.last_report_time >= STATS_INTERVAL:
+                await self.log_stats()
+                self.last_report_time = current_time
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {e}")
+        except Exception as e:
+            logger.error(f"Error processing message: {e}")
+
+    async def log_stats(self):
         elapsed = time.time() - self.start_time
         
         # Check if warmup period is complete
@@ -96,23 +126,20 @@ class MetricsCollector:
             f"Unique Nodes: {len(self.nodes_seen)}\n"
             f"Messages per Node: {dict(self.metrics_by_node)}"
         )
-    
-    def reset_metrics(self):
-        self.message_count = 0
-        self.bytes_received = 0
-        self.message_sizes = []
-        self.latencies = []
-        self.metrics_by_node.clear()
-        self.last_report_time = time.time()
 
-async def consume():
+async def consume(node_size=None):
+    """
+    Main consumer function
+    Args:
+        node_size: Optional node size for logging purposes
+    """
+    logger = setup_logging(node_size)
     collector = MetricsCollector()
     consumer = AIOKafkaConsumer(
         'dcgm-metrics-test',
         bootstrap_servers=['10.180.8.24:9092', '10.180.8.24:9093', '10.180.8.24:9094'],
         group_id='my-group-1',
-        auto_offset_reset='earliest',
-        value_deserializer=lambda m: json.loads(m.decode('utf-8'))
+        auto_offset_reset='earliest'
     )
     
     try:
@@ -120,10 +147,7 @@ async def consume():
         logger.info("Consumer started successfully")
         
         async for msg in consumer:
-            try:
-                collector.record_message(msg, msg.value)
-            except Exception as e:
-                logger.error(f"Error processing message: {e}")
+            await collector.record_message(msg)
                 
     except asyncio.CancelledError:
         logger.info("Consumer cancelled by user")
@@ -131,13 +155,19 @@ async def consume():
         logger.error(f"Consumer error: {e}")
     finally:
         # Log final statistics
-        collector.log_stats()
+        await collector.log_stats()
         await consumer.stop()
         logger.info("Consumer stopped")
 
 if __name__ == "__main__":
     try:
-        asyncio.run(consume())
+        # Add argument parsing for node size
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--node_size", type=int, help="Number of nodes being tested")
+        args = parser.parse_args()
+        
+        asyncio.run(consume(args.node_size))
     except KeyboardInterrupt:
         logger.info("Shutting down...")
 
