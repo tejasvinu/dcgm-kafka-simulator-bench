@@ -33,7 +33,7 @@ class ResourceMonitor:
             'cpu_percent': psutil.cpu_percent(),
             'memory_percent': psutil.virtual_memory().percent,
             'open_files': len(psutil.Process().open_files()),
-            'connections': len(psutil.Process().connections())
+            'connections': len(psutil.Process().net_connections())  # Updated to recommended method
         }
 
     @staticmethod
