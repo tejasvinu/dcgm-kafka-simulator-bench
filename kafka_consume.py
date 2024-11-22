@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 import logging
-from aiokafka import AIOKafkaConsumer
+from aiokafka import AIOKafkaConsumer, TopicPartition
 from datetime import datetime, timedelta
 import os
 import numpy as np
@@ -149,6 +149,7 @@ async def consume(node_size=None):
     global logger
     logger = setup_logging(node_size)
     collector = MetricsCollector(logger)
+    stats_task = None  # Initialize stats_task variable
     
     # Add consumer configuration
     consumer_config = {
@@ -171,24 +172,27 @@ async def consume(node_size=None):
         await consumer.start()
         logger.info("Consumer started successfully")
         
-        # Get list of topics and partitions
-        topics = await consumer.topics()
-        logger.info(f"Available topics: {topics}")
-        
-        partitions = await consumer.partitions_for_topic('dcgm-metrics-test')
-        logger.info(f"Partitions for dcgm-metrics-test: {partitions}")
+        # Get metadata about the topic
+        topic = 'dcgm-metrics-test'
+        partitions = await consumer.partitions_for_topic(topic)
+        if not partitions:
+            logger.error(f"No partitions found for topic {topic}")
+            return
+            
+        logger.info(f"Partitions for {topic}: {partitions}")
         
         # Get beginning and end offsets
-        topic_partitions = [TopicPartition('dcgm-metrics-test', p) for p in partitions] if partitions else []
-        if topic_partitions:
-            beginning_offsets = await consumer.beginning_offsets(topic_partitions)
-            end_offsets = await consumer.end_offsets(topic_partitions)
-            logger.info(f"Beginning offsets: {beginning_offsets}")
-            logger.info(f"End offsets: {end_offsets}")
+        topic_partitions = [TopicPartition(topic, p) for p in partitions]
+        beginning_offsets = await consumer.beginning_offsets(topic_partitions)
+        end_offsets = await consumer.end_offsets(topic_partitions)
         
-        # Add periodic stats logging even without messages
+        logger.info(f"Beginning offsets: {beginning_offsets}")
+        logger.info(f"End offsets: {end_offsets}")
+        
+        # Start periodic stats task
         stats_task = asyncio.create_task(periodic_stats(collector))
         
+        # Process messages
         async for msg in consumer:
             logger.debug(f"Received message from partition {msg.partition} at offset {msg.offset}")
             await collector.record_message(msg)
@@ -196,18 +200,25 @@ async def consume(node_size=None):
     except asyncio.CancelledError:
         logger.info("Consumer cancelled by user")
     except Exception as e:
-        logger.error(f"Consumer error: {e}")
+        logger.error(f"Consumer error: {str(e)}", exc_info=True)
     finally:
-        # Cancel stats task
-        stats_task.cancel()
-        try:
-            await stats_task
-        except asyncio.CancelledError:
-            pass
+        # Cleanup tasks
+        if stats_task and not stats_task.done():
+            stats_task.cancel()
+            try:
+                await stats_task
+            except asyncio.CancelledError:
+                pass
+        
         # Log final statistics
         await collector.log_stats()
-        await consumer.stop()
-        logger.info("Consumer stopped")
+        
+        # Stop consumer
+        try:
+            await consumer.stop()
+            logger.info("Consumer stopped successfully")
+        except Exception as e:
+            logger.error(f"Error stopping consumer: {e}")
 
 async def periodic_stats(collector):
     """Periodically log stats even if no messages are received"""
