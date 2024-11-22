@@ -64,6 +64,7 @@ class MetricsCollector:
         self.last_report_time = time.time()
         self.warmup_complete = False
         self.metrics_by_node = defaultdict(int)
+        self.last_message_time = None
         
     async def record_message(self, msg):
         try:
@@ -103,6 +104,11 @@ class MetricsCollector:
 
     async def log_stats(self):
         elapsed = time.time() - self.start_time
+        
+        # Log even if no messages received
+        if self.message_count == 0:
+            self.logger.info("No messages received yet")
+            return
         
         # Check if warmup period is complete
         if not self.warmup_complete and elapsed > WARMUP_PERIOD:
@@ -154,7 +160,11 @@ async def consume(node_size=None):
         await consumer.start()
         logger.info("Consumer started successfully")
         
+        # Add periodic stats logging even without messages
+        stats_task = asyncio.create_task(periodic_stats(collector))
+        
         async for msg in consumer:
+            logger.debug(f"Received message from partition {msg.partition} at offset {msg.offset}")
             await collector.record_message(msg)
                 
     except asyncio.CancelledError:
@@ -162,10 +172,22 @@ async def consume(node_size=None):
     except Exception as e:
         logger.error(f"Consumer error: {e}")
     finally:
+        # Cancel stats task
+        stats_task.cancel()
+        try:
+            await stats_task
+        except asyncio.CancelledError:
+            pass
         # Log final statistics
         await collector.log_stats()
         await consumer.stop()
         logger.info("Consumer stopped")
+
+async def periodic_stats(collector):
+    """Periodically log stats even if no messages are received"""
+    while True:
+        await asyncio.sleep(STATS_INTERVAL)
+        await collector.log_stats()
 
 if __name__ == "__main__":
     try:
