@@ -125,21 +125,34 @@ async def fetch_metrics(session, url):
         response.raise_for_status()
         return await response.text()
 
-async def fetch_and_send_metrics(producer, session, node_id, num_nodes, num_processes):
-    """Fetches metrics from a single node and sends them to Kafka."""
-    logger.info(f"Process handling node {node_id}")
+async def fetch_and_send_metrics(producer, session, start_node, end_node, num_nodes, num_processes):
+    """Fetches metrics from a range of nodes and sends them to Kafka."""
+    logger.info(f"Process handling nodes {start_node} to {end_node-1}")
+    retries = 3
+    retry_delay = 1
 
     while True:
-        try:
-            url = f"http://localhost:50000/metrics/{node_id}"  # Updated URL format
-            metrics = await fetch_metrics(session, url)
-            parsed_metrics = parse_dcgm_metrics(metrics)
-            
-            await batch_send_messages(producer, parsed_metrics)
-            logger.info(f"Sent metrics for node {node_id} (4 GPUs)")
-            
-        except Exception as e:
-            logger.error(f"Error fetching/sending metrics for node {node_id}: {e}")
+        for node_id in range(start_node, end_node):
+            try:
+                url = f"http://localhost:50000/metrics/{node_id}"
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        metrics = await response.text()
+                        parsed_metrics = parse_dcgm_metrics(metrics)
+                        await batch_send_messages(producer, parsed_metrics)
+                        logger.debug(f"Sent metrics for node {node_id}")
+                    else:
+                        # Implement exponential backoff for retries
+                        for attempt in range(retries):
+                            await asyncio.sleep(retry_delay * (2 ** attempt))
+                            async with session.get(url) as retry_response:
+                                if retry_response.status == 200:
+                                    break
+                        if attempt == retries - 1:
+                            logger.error(f"Failed to fetch metrics for node {node_id} after {retries} retries")
+            except Exception as e:
+                logger.error(f"Error fetching/sending metrics for node {node_id}: {e}")
+                await asyncio.sleep(retry_delay)
         
         await asyncio.sleep(FETCH_INTERVAL)
 
@@ -155,15 +168,12 @@ async def batch_send_messages(producer, messages, batch_size=100):
 
 async def stop_after_timer(tasks, producer):
     """Stops all metric-fetching tasks and shuts down the producer after the timer duration."""
-    await asyncio.sleep(TIMER_DURATION)
-    logger.info(f"Stopping all tasks after {TIMER_DURATION / 60} minutes.")
-    
-    # Cancel all running tasks
-    for task in tasks:
-        task.cancel()
-    
-    # Shutdown the producer
-    await shutdown_producer(producer)
+    try:
+        await asyncio.sleep(TIMER_DURATION)
+        logger.info(f"Stopping all tasks after {TIMER_DURATION / 60} minutes.")
+    finally:
+        # Cancel is now called in the main run_producers function
+        return
 
 class RateLimiter:
     def __init__(self, rate_limit):
@@ -208,15 +218,36 @@ async def run_producers(num_nodes, num_processes):
 
     async with aiohttp.ClientSession() as session:
         try:
-            # Create one task per node
-            tasks = [fetch_and_send_metrics(producer, session, i, num_nodes, num_processes) 
-                    for i in range(num_nodes)]
-            timer_task = asyncio.create_task(stop_after_timer(tasks, producer))
+            # Create tasks list
+            tasks = []
+            # Create one task per process
+            nodes_per_process = num_nodes // num_processes
+            for p in range(num_processes):
+                start_node = p * nodes_per_process
+                end_node = start_node + nodes_per_process
+                task = asyncio.create_task(
+                    fetch_and_send_metrics(producer, session, start_node, end_node, num_nodes, num_processes)
+                )
+                tasks.append(task)
             
-            await asyncio.gather(*tasks, timer_task)
+            # Create monitor task
+            monitor_task = asyncio.create_task(monitor_metrics())
+            tasks.append(monitor_task)
+            
+            # Create timer task
+            timer_task = asyncio.create_task(stop_after_timer(tasks, producer))
+            tasks.append(timer_task)
+            
+            # Wait for all tasks
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
         except asyncio.CancelledError:
             logger.info("Producer tasks cancelled.")
         finally:
+            # Ensure all tasks are properly cancelled
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
             await shutdown_producer(producer)
 
 if __name__ == "__main__":

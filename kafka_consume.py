@@ -149,16 +149,42 @@ async def consume(node_size=None):
     global logger
     logger = setup_logging(node_size)
     collector = MetricsCollector(logger)
+    
+    # Add consumer configuration
+    consumer_config = {
+        'group_id': 'my-group-1',
+        'auto_offset_reset': 'earliest',
+        'enable_auto_commit': True,
+        'auto_commit_interval_ms': 1000,
+        'max_poll_interval_ms': 300000,
+        'session_timeout_ms': 10000,
+        'heartbeat_interval_ms': 3000
+    }
+    
     consumer = AIOKafkaConsumer(
         'dcgm-metrics-test',
         bootstrap_servers=['10.180.8.24:9092', '10.180.8.24:9093', '10.180.8.24:9094'],
-        group_id='my-group-1',
-        auto_offset_reset='earliest'
+        **consumer_config
     )
     
     try:
         await consumer.start()
         logger.info("Consumer started successfully")
+        
+        # Get list of topics and partitions
+        topics = await consumer.topics()
+        logger.info(f"Available topics: {topics}")
+        
+        partitions = await consumer.partitions_for_topic('dcgm-metrics-test')
+        logger.info(f"Partitions for dcgm-metrics-test: {partitions}")
+        
+        # Get beginning and end offsets
+        topic_partitions = [TopicPartition('dcgm-metrics-test', p) for p in partitions] if partitions else []
+        if topic_partitions:
+            beginning_offsets = await consumer.beginning_offsets(topic_partitions)
+            end_offsets = await consumer.end_offsets(topic_partitions)
+            logger.info(f"Beginning offsets: {beginning_offsets}")
+            logger.info(f"End offsets: {end_offsets}")
         
         # Add periodic stats logging even without messages
         stats_task = asyncio.create_task(periodic_stats(collector))
