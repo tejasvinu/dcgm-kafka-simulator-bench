@@ -29,7 +29,7 @@ class ProcessOutputReader(threading.Thread):
                 for line in iter(stream.readline, ''):
                     self.output_queue.put(line.strip())
             except Exception as e:
-                logging.error(f"Error reading process output: {e}")
+                logging.error("Error reading process output: %s" % e)
             finally:
                 stream.close()
 
