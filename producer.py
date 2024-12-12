@@ -16,13 +16,13 @@ class MetricsProducer:
             bootstrap_servers=self.bootstrap_servers,
             compression_type="gzip",  # Enable compression
             # batch_size=16384,  # Removed unsupported argument
-            linger_ms=100,  # Wait up to 100ms to batch messages
-            max_batch_size=3_000_000,  # Max batch size in bytes
-            max_request_size=3_000_000,  # Max request size in bytes
-            request_timeout_ms=10000,  # Increase timeout to 10s
-            retry_backoff_ms=100,  # Backoff between retries
-            max_in_flight_requests_per_connection=5,  # Allow multiple in-flight requests
-            enable_idempotence=True  # Ensure exactly-once delivery
+            #linger_ms=100,  # Wait up to 100ms to batch messages
+            #max_batch_size=3_000_000,  # Max batch size in bytes
+            #max_request_size=3_000_000,  # Max request size in bytes
+            #request_timeout_ms=10000,  # Increase timeout to 10s
+            #retry_backoff_ms=100,  # Backoff between retries
+            # max_in_flight_requests_per_connection=5,  # Removed unsupported argument
+            #enable_idempotence=True  # Ensure exactly-once delivery
         )
         await self.producer.start()
 

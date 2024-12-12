@@ -37,7 +37,7 @@ class BenchmarkRunner:
     def __init__(self):
         self.results_dir = "benchmark_results"
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        os.makedirs(f"{self.results_dir}/{self.timestamp}", exist_ok=True)
+        os.makedirs(os.path.join(self.results_dir, self.timestamp), exist_ok=True)
         self.server_counts = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
         self.results = []
         self.current_processes = []
