@@ -15,7 +15,7 @@ class MetricsProducer:
         self.producer = AIOKafkaProducer(
             bootstrap_servers=self.bootstrap_servers,
             compression_type="gzip",  # Enable compression
-            batch_size=16384,  # Increase batch size
+            # batch_size=16384,  # Removed unsupported argument
             linger_ms=100,  # Wait up to 100ms to batch messages
             max_batch_size=3_000_000,  # Max batch size in bytes
             max_request_size=3_000_000,  # Max request size in bytes
