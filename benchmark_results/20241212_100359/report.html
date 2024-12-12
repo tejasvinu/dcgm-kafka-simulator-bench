@@ -1,0 +1,110 @@
+
+        <html>
+        <head>
+            <title>Kafka Benchmark Report - 20241212_100359</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; }
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+            </style>
+        </head>
+        <body>
+            <h1>Kafka Benchmark Report</h1>
+            <p>Generated: 20241212_100359</p>
+            <h2>Results Summary</h2>
+            <table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>num_servers</th>
+      <th>avg_processing_rate</th>
+      <th>total_gpus</th>
+      <th>error</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>8</td>
+      <td>19.728571</td>
+      <td>32</td>
+      <td>NaN</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>16</td>
+      <td>51.896875</td>
+      <td>64</td>
+      <td>NaN</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>32</td>
+      <td>94.238000</td>
+      <td>128</td>
+      <td>NaN</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>64</td>
+      <td>161.479615</td>
+      <td>256</td>
+      <td>NaN</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>128</td>
+      <td>211.330435</td>
+      <td>512</td>
+      <td>NaN</td>
+    </tr>
+    <tr>
+      <th>5</th>
+      <td>256</td>
+      <td>0.000000</td>
+      <td>1024</td>
+      <td>Server emulator process died during benchmark:\nGot error produce response: [Error 7] RequestTimedOutError Traceback (most recent call last): File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 144, in &lt;module&gt; asyncio.run(main()) File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 194, in run return runner.run(main) ^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 118, in run return self._loop.run_until_complete(task) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete return future.result() ^^^^^^^^^^^^^^^ File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 139, in main await asyncio.gather(*tasks) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 128, in run_server await producer.send_metric(metric) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/producer.py", line 17, in send_metric await self.producer.send_and_wait(KAFKA_TOPIC, metric_data.encode('utf-8')) File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 545, in send_and_wait future = await self.send(topic, value, key, partition, timestamp_ms, headers) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 525, in send fut = await self._message_accumulator.add_message( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/message_accumulator.py", line 417, in add_message raise KafkaTimeoutError() aiokafka.errors.KafkaTimeoutError: KafkaTimeoutError</td>
+    </tr>
+    <tr>
+      <th>6</th>
+      <td>512</td>
+      <td>0.000000</td>
+      <td>2048</td>
+      <td>Server emulator process died during benchmark:\nTraceback (most recent call last): File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 144, in &lt;module&gt; asyncio.run(main()) File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 194, in run return runner.run(main) ^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 118, in run return self._loop.run_until_complete(task) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete return future.result() ^^^^^^^^^^^^^^^ File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 139, in main await asyncio.gather(*tasks) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 128, in run_server await producer.send_metric(metric) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/producer.py", line 17, in send_metric await self.producer.send_and_wait(KAFKA_TOPIC, metric_data.encode('utf-8')) File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 545, in send_and_wait future = await self.send(topic, value, key, partition, timestamp_ms, headers) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 525, in send fut = await self._message_accumulator.add_message( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/message_accumulator.py", line 417, in add_message raise KafkaTimeoutError() aiokafka.errors.KafkaTimeoutError: KafkaTimeoutError</td>
+    </tr>
+    <tr>
+      <th>7</th>
+      <td>1024</td>
+      <td>0.000000</td>
+      <td>4096</td>
+      <td>Server emulator process died during benchmark:\nGot error produce response: [Error 7] RequestTimedOutError Traceback (most recent call last): File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 144, in &lt;module&gt; asyncio.run(main()) File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 194, in run return runner.run(main) ^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 118, in run return self._loop.run_until_complete(task) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete return future.result() ^^^^^^^^^^^^^^^ File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 139, in main await asyncio.gather(*tasks) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 128, in run_server await producer.send_metric(metric) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/producer.py", line 17, in send_metric await self.producer.send_and_wait(KAFKA_TOPIC, metric_data.encode('utf-8')) File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 545, in send_and_wait future = await self.send(topic, value, key, partition, timestamp_ms, headers) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 525, in send fut = await self._message_accumulator.add_message( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/message_accumulator.py", line 417, in add_message raise KafkaTimeoutError() aiokafka.errors.KafkaTimeoutError: KafkaTimeoutError</td>
+    </tr>
+    <tr>
+      <th>8</th>
+      <td>2048</td>
+      <td>0.000000</td>
+      <td>8192</td>
+      <td>Server emulator process died during benchmark:\nGot error produce response: [Error 7] RequestTimedOutError Got error produce response: [Error 7] RequestTimedOutError Unable to request metadata from node with id 1003: KafkaConnectionError('Connection at 10.180.8.24:9093 closed') Traceback (most recent call last): File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 144, in &lt;module&gt; asyncio.run(main()) File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 194, in run return runner.run(main) ^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 118, in run return self._loop.run_until_complete(task) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete return future.result() ^^^^^^^^^^^^^^^ File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 139, in main await asyncio.gather(*tasks) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 128, in run_server await producer.send_metric(metric) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/producer.py", line 17, in send_metric await self.producer.send_and_wait(KAFKA_TOPIC, metric_data.encode('utf-8')) File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 545, in send_and_wait future = await self.send(topic, value, key, partition, timestamp_ms, headers) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 525, in send fut = await self._message_accumulator.add_message( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/message_accumulator.py", line 417, in add_message raise KafkaTimeoutError() aiokafka.errors.KafkaTimeoutError: KafkaTimeoutError</td>
+    </tr>
+    <tr>
+      <th>9</th>
+      <td>4096</td>
+      <td>0.000000</td>
+      <td>16384</td>
+      <td>Server emulator process died during benchmark:\nGot error produce response: [Error 7] RequestTimedOutError Traceback (most recent call last): File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 144, in &lt;module&gt; asyncio.run(main()) File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 194, in run return runner.run(main) ^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 118, in run return self._loop.run_until_complete(task) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete return future.result() ^^^^^^^^^^^^^^^ File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 139, in main await asyncio.gather(*tasks) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 128, in run_server await producer.send_metric(metric) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/producer.py", line 17, in send_metric await self.producer.send_and_wait(KAFKA_TOPIC, metric_data.encode('utf-8')) File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 545, in send_and_wait future = await self.send(topic, value, key, partition, timestamp_ms, headers) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 525, in send fut = await self._message_accumulator.add_message( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/message_accumulator.py", line 417, in add_message raise KafkaTimeoutError() aiokafka.errors.KafkaTimeoutError: KafkaTimeoutError</td>
+    </tr>
+    <tr>
+      <th>10</th>
+      <td>8192</td>
+      <td>0.000000</td>
+      <td>32768</td>
+      <td>Server emulator process died during benchmark:\nTraceback (most recent call last): File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 144, in &lt;module&gt; asyncio.run(main()) File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 194, in run return runner.run(main) ^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/runners.py", line 118, in run return self._loop.run_until_complete(task) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete return future.result() ^^^^^^^^^^^^^^^ File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 139, in main await asyncio.gather(*tasks) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/server_emulator.py", line 128, in run_server await producer.send_metric(metric) File "/mnt/c/Users/tejasv/Documents/ExaODAF/dcgm-kafka-simulator-bench/producer.py", line 17, in send_metric await self.producer.send_and_wait(KAFKA_TOPIC, metric_data.encode('utf-8')) File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 545, in send_and_wait future = await self.send(topic, value, key, partition, timestamp_ms, headers) ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/producer.py", line 525, in send fut = await self._message_accumulator.add_message( ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ File "/home/tejas/miniforge3/lib/python3.12/site-packages/aiokafka/producer/message_accumulator.py", line 417, in add_message raise KafkaTimeoutError() aiokafka.errors.KafkaTimeoutError: KafkaTimeoutError</td>
+    </tr>
+  </tbody>
+</table>
+            <h2>Processing Rate Graph</h2>
+            <img src="processing_rate.png" alt="Processing Rate Graph">
+        </body>
+        </html>
+        
