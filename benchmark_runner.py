@@ -41,7 +41,7 @@ class BenchmarkRunner:
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         os.makedirs(f"{self.results_dir}/{self.timestamp}", exist_ok=True)
         # Reduced server counts for more thorough testing
-        self.server_counts = [8, 32, 128, 512, 2048, 8192]
+        self.server_counts = [8, 16, 32, 128, 256, 512, 1024, 2048, 4096, 8192]
         self.results = []
         self.current_processes = []
         
@@ -276,7 +276,7 @@ METRICS_INTERVAL = 1
 
         # Generate plots
         plt.figure(figsize=(12, 6))
-        plt.plot(df['num_servers'], df['avg_processing_rate'], marker='o')
+        plt.plot(df['num_servers'], df['avg_rate'], marker='o')  # Changed from avg_processing_rate to avg_rate
         plt.xlabel('Number of Servers')
         plt.ylabel('Messages/Second')
         plt.title('Kafka Processing Rate vs Number of Servers')
@@ -284,25 +284,61 @@ METRICS_INTERVAL = 1
         plt.savefig(f"{self.results_dir}/{self.timestamp}/processing_rate.png")
         plt.close()
 
-        # Generate HTML report
+        # Generate additional plots
+        plt.figure(figsize=(12, 6))
+        plt.plot(df['num_servers'], df['avg_cpu'], marker='o', label='CPU Usage (%)')
+        plt.plot(df['num_servers'], df['avg_mem'], marker='s', label='Memory Usage (%)')
+        plt.xlabel('Number of Servers')
+        plt.ylabel('Resource Usage (%)')
+        plt.title('Resource Usage vs Number of Servers')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(f"{self.results_dir}/{self.timestamp}/resource_usage.png")
+        plt.close()
+
+        # Generate HTML report with more detailed information
         html_report = f"""
         <html>
         <head>
             <title>Kafka Benchmark Report - {self.timestamp}</title>
             <style>
                 body {{ font-family: Arial, sans-serif; margin: 40px; }}
-                table {{ border-collapse: collapse; width: 100%; }}
+                table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; }}
                 th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
                 th {{ background-color: #f2f2f2; }}
+                .graph {{ margin: 20px 0; }}
+                .metrics {{ margin-bottom: 30px; }}
             </style>
         </head>
         <body>
             <h1>Kafka Benchmark Report</h1>
             <p>Generated: {self.timestamp}</p>
-            <h2>Results Summary</h2>
-            {df.to_html()}
-            <h2>Processing Rate Graph</h2>
-            <img src="processing_rate.png" alt="Processing Rate Graph">
+            
+            <div class="metrics">
+                <h2>Results Summary</h2>
+                <table>
+                    <tr>
+                        <th>Servers</th>
+                        <th>Avg Rate (msg/s)</th>
+                        <th>Min Rate</th>
+                        <th>Max Rate</th>
+                        <th>StdDev</th>
+                        <th>Avg CPU (%)</th>
+                        <th>Avg Mem (%)</th>
+                    </tr>
+                    {''.join(f"<tr><td>{row['num_servers']}</td><td>{row['avg_rate']:.2f}</td><td>{row['min_rate']:.2f}</td><td>{row['max_rate']:.2f}</td><td>{row['stddev']:.2f}</td><td>{row['avg_cpu']:.1f}</td><td>{row['avg_mem']:.1f}</td></tr>" for _, row in df.iterrows())}
+                </table>
+            </div>
+            
+            <div class="graph">
+                <h2>Processing Rate Graph</h2>
+                <img src="processing_rate.png" alt="Processing Rate Graph" style="width: 100%; max-width: 800px;">
+            </div>
+            
+            <div class="graph">
+                <h2>Resource Usage Graph</h2>
+                <img src="resource_usage.png" alt="Resource Usage Graph" style="width: 100%; max-width: 800px;">
+            </div>
         </body>
         </html>
         """
