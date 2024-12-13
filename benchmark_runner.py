@@ -10,6 +10,8 @@ import sys
 import signal
 import threading
 import queue
+import statistics
+import psutil
 
 logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(levelname)s - %(message)s')
@@ -37,10 +39,17 @@ class BenchmarkRunner:
     def __init__(self):
         self.results_dir = "benchmark_results"
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        os.makedirs(os.path.join(self.results_dir, self.timestamp), exist_ok=True)
-        self.server_counts = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192]
+        os.makedirs(f"{self.results_dir}/{self.timestamp}", exist_ok=True)
+        # Reduced server counts for more thorough testing
+        self.server_counts = [8, 32, 128, 512, 2048, 8192]
         self.results = []
         self.current_processes = []
+        
+        # Test phase durations
+        self.warmup_duration = 300  # 5 min warmup
+        self.test_duration = 1800   # 30 min test
+        self.cooldown_duration = 120  # 2 min cooldown
+        self.metric_interval = 10   # Sample every 10s
 
     def cleanup_processes(self):
         for process in self.current_processes:
@@ -55,6 +64,20 @@ class BenchmarkRunner:
             except Exception as e:
                 logging.error(f"Error cleaning up process: {e}")
         self.current_processes.clear()
+
+    async def collect_metrics(self, consumer_output_queue):
+        rate = 0
+        try:
+            while True:
+                try:
+                    line = consumer_output_queue.get_nowait()
+                    if "Processing rate:" in line:
+                        rate = float(line.split(":")[1].split()[0])
+                except queue.Empty:
+                    break
+        except Exception as e:
+            logging.error(f"Error collecting metrics: {e}")
+        return rate
 
     async def run_benchmark(self, num_servers):
         consumer_proc = None
@@ -90,7 +113,7 @@ METRICS_INTERVAL = 1
             consumer_out_reader.start()
             consumer_err_reader.start()
 
-            # Wait for consumer to initialize
+            # Wait for consumer initialization
             logging.info("Waiting for consumer initialization...")
             initialization_timeout = 30  # Increased timeout
             start_wait = time.time()
@@ -141,53 +164,56 @@ METRICS_INTERVAL = 1
             server_out_reader.start()
             server_err_reader.start()
 
-            # Run for 5 minutes
+            # Warmup phase
+            logging.info("Starting warmup phase...")
             start_time = time.time()
-            test_duration = 300  # 5 minutes
-            processing_rates = []
+            while time.time() - start_time < self.warmup_duration:
+                if not self.check_process_health(consumer_proc, server_proc, 
+                                              consumer_error_queue, server_error_queue):
+                    raise RuntimeError("Process died during warmup")
+                await asyncio.sleep(self.metric_interval)
 
-            while time.time() - start_time < test_duration:
-                # Check process health
-                if consumer_proc.poll() is not None:
-                    error_msgs = []
-                    while True:
-                        try:
-                            error_msgs.append(consumer_error_queue.get_nowait())
-                        except queue.Empty:
-                            break
-                    raise RuntimeError(f"Consumer process died during benchmark:\n{' '.join(error_msgs)}")
+            # Main test phase
+            logging.info("Starting main test phase...")
+            detailed_metrics = []
+            start_time = time.time()
+            
+            while time.time() - start_time < self.test_duration:
+                if not self.check_process_health(consumer_proc, server_proc,
+                                              consumer_error_queue, server_error_queue):
+                    raise RuntimeError("Process died during test")
+                
+                rate = await self.collect_metrics(consumer_output_queue)
+                detailed_metrics.append({
+                    'timestamp': time.time(),
+                    'rate': rate,
+                    'cpu_usage': psutil.cpu_percent(interval=None),
+                    'mem_usage': psutil.virtual_memory().percent,
+                    'num_servers': num_servers
+                })
+                await asyncio.sleep(self.metric_interval)
 
-                if server_proc.poll() is not None:
-                    error_msgs = []
-                    while True:
-                        try:
-                            error_msgs.append(server_error_queue.get_nowait())
-                        except queue.Empty:
-                            break
-                    raise RuntimeError(f"Server emulator process died during benchmark:\n{' '.join(error_msgs)}")
+            # Cooldown phase
+            logging.info("Starting cooldown phase...")
+            await asyncio.sleep(self.cooldown_duration)
 
-                # Process output
-                try:
-                    while True:
-                        try:
-                            line = consumer_output_queue.get_nowait()
-                            if "Processing rate:" in line:
-                                rate = float(line.split(":")[1].split()[0])
-                                processing_rates.append(rate)
-                                logging.info(f"Current processing rate: {rate:.2f} messages/second")
-                        except queue.Empty:
-                            break
-                except Exception as e:
-                    logging.error(f"Error processing output: {e}")
-
-                await asyncio.sleep(1)
-
-            avg_rate = sum(processing_rates) / len(processing_rates) if processing_rates else 0
+            # Calculate statistics
+            rates = [m['rate'] for m in detailed_metrics]
             self.results.append({
                 'num_servers': num_servers,
-                'avg_processing_rate': avg_rate,
-                'total_gpus': num_servers * 4
+                'avg_rate': sum(rates)/len(rates),
+                'min_rate': min(rates),
+                'max_rate': max(rates),
+                'stddev': statistics.stdev(rates),
+                'samples': len(rates),
+                'avg_cpu': sum(m['cpu_usage'] for m in detailed_metrics)/len(detailed_metrics),
+                'avg_mem': sum(m['mem_usage'] for m in detailed_metrics)/len(detailed_metrics)
             })
+
+            # Save detailed metrics
+            df_detailed = pd.DataFrame(detailed_metrics)
+            df_detailed.to_csv(f"{self.results_dir}/{self.timestamp}/detailed_metrics_{num_servers}.csv", 
+                             index=False)
 
         except Exception as e:
             logging.error(f"Error during benchmark with {num_servers} servers: {e}")
@@ -221,6 +247,25 @@ METRICS_INTERVAL = 1
 
         finally:
             self.cleanup_processes()
+
+    def check_process_health(self, consumer_proc, server_proc, consumer_error_queue, server_error_queue):
+        """Check if processes are still running and collect error messages if not"""
+        if consumer_proc.poll() is not None or server_proc.poll() is not None:
+            self.collect_error_messages(consumer_error_queue, "Consumer")
+            self.collect_error_messages(server_error_queue, "Server")
+            return False
+        return True
+
+    def collect_error_messages(self, error_queue, process_name):
+        """Collect and log error messages from process queue"""
+        error_msgs = []
+        while True:
+            try:
+                error_msgs.append(error_queue.get_nowait())
+            except queue.Empty:
+                break
+        if error_msgs:
+            logging.error(f"{process_name} errors:\n{' '.join(error_msgs)}")
 
     def generate_report(self):
         # Create DataFrame
