@@ -186,7 +186,7 @@ METRICS_INTERVAL = 1
 
             # Wait for consumer initialization
             logging.info("Waiting for consumer initialization...")
-            initialization_timeout = 30  # Increased timeout
+            initialization_timeout = 120  # Increased from 30 to 120 seconds
             start_wait = time.time()
             initialized = False
 
@@ -205,16 +205,24 @@ METRICS_INTERVAL = 1
                 # Check for successful initialization
                 try:
                     line = consumer_output_queue.get_nowait()
-                    logging.debug(f"Consumer output: {line}")
+                    logging.info(f"Consumer output: {line}")  # Changed from debug to info
                     if "Consumer initialized successfully" in line:
                         initialized = True
                         break
                 except queue.Empty:
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(1)  # Increased from 0.1 to 1 second
                     continue
 
             if not initialized:
-                raise RuntimeError("Consumer failed to initialize within timeout period")
+                # Collect any error messages before raising the timeout error
+                error_msgs = []
+                while True:
+                    try:
+                        error_msgs.append(consumer_error_queue.get_nowait())
+                    except queue.Empty:
+                        break
+                error_text = "\n".join(error_msgs) if error_msgs else "No error messages available"
+                raise RuntimeError(f"Consumer failed to initialize within {initialization_timeout} seconds.\nLast known state:\n{error_text}")
 
             # Start server emulator
             logging.info("Starting server emulator process...")
