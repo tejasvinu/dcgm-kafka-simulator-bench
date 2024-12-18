@@ -16,7 +16,7 @@ class MetricsProducer:
             bootstrap_servers=self.bootstrap_servers,
             compression_type="snappy",  # Changed to snappy for better performance
             client_id="dcgm-metrics-producer",
-            acks=1,  # Changed from all to 1 for better performance while maintaining reasonable durability
+            acks="1",  # Fixed: Changed from integer to string "1"
             linger_ms=100,  # Wait up to 100ms to batch messages
             max_batch_size=1048576,  # 1MB batch size
             request_timeout_ms=30000,  # 30 seconds timeout
