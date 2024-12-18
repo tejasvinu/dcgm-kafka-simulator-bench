@@ -156,7 +156,7 @@ class BenchmarkRunner:
         try:
             # Update config
             with open("config.py", "w") as f:
-                f.write(f"""KAFKA_BOOTSTRAP_SERVERS = ['10.180.8.24:9092', '10.180.8.24:9093', '10.180.8.24:9094']
+                f.write(f"""KAFKA_BOOTSTRAP_SERVERS = ['10.180.8.24:9092', '10.180.8.24:9093', '10.180.8.24:9094','10.180.8.24:9095','10.180.8.24:9096']
 KAFKA_TOPIC = 'dcgm-metrics-test'
 NUM_SERVERS = {num_servers}
 GPUS_PER_SERVER = 4
