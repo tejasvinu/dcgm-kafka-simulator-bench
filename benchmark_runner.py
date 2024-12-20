@@ -69,8 +69,8 @@ class BenchmarkRunner:
         
         # Expanded server counts for more granular data
         self.server_counts = [
-            8, 16, 32, 64, 128, 256, 384, 512, 768, 
-            1024, 1536, 2048, 3072, 4096, 6144, 8192
+            8, 16, 32, 64, 128, 256, 512,
+            1024, 2048,  4096, 8192
         ]
 
     def cleanup_processes(self):
