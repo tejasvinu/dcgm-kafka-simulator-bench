@@ -49,10 +49,10 @@ class BenchmarkRunner:
         self.current_processes = []
         
         # Test phase durations
-        self.warmup_duration = 300  # 5 min warmup
-        self.test_duration = 1800   # 30 min test
-        self.cooldown_duration = 120  # 2 min cooldown
-        self.metric_interval = 10   # Sample every 10s
+        self.warmup_duration = 60    # 1 min warmup
+        self.test_duration = 600     # 10 min test
+        self.cooldown_duration = 60  # 1 min cooldown
+        self.metric_interval = 10    # Sample every 10s
 
         # Additional metrics
         self.collect_interval = 1  # Collect metrics every second
