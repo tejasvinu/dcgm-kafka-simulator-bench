@@ -88,18 +88,22 @@ class BenchmarkRunner:
         self.current_processes.clear()
 
     async def collect_metrics(self, consumer_output_queue):
-        rate = 0
+        rates = []
         try:
             while True:
                 try:
                     line = consumer_output_queue.get_nowait()
                     if "Processing rate:" in line:
                         rate = float(line.split(":")[1].split()[0])
+                        rates.append(rate)
+                        logging.info(f"Current processing rate: {rate:.2f} messages/second")
                 except queue.Empty:
                     break
         except Exception as e:
             logging.error(f"Error collecting metrics: {e}")
-        return rate
+        
+        # Return average rate if rates were collected, otherwise 0
+        return statistics.mean(rates) if rates else 0
 
     async def collect_system_metrics(self):
         """Collect detailed system metrics"""
@@ -259,6 +263,9 @@ METRICS_INTERVAL = 1
             logging.info("Starting main test phase...")
             detailed_metrics = []
             test_start_time = time.time()
+            last_metric_time = test_start_time
+            metrics_collected = 0
+            expected_metrics = self.test_duration // self.collect_interval
             
             while time.time() - test_start_time < self.test_duration:
                 if not self.check_process_health(consumer_proc, server_proc,
@@ -266,12 +273,17 @@ METRICS_INTERVAL = 1
                     raise RuntimeError("Process died during test")
                 
                 # Collect detailed metrics
+                current_time = time.time()
                 system_metrics = await self.collect_system_metrics()
                 rate = await self.collect_metrics(consumer_output_queue)
                 
                 if rate > 0:
+                    metrics_collected += 1
+                    elapsed_time = current_time - test_start_time
+                    remaining_time = self.test_duration - elapsed_time
+                    
                     detailed_metrics.append({
-                        'timestamp': time.time(),
+                        'timestamp': current_time,
                         'rate': rate,
                         'cpu_usage': psutil.cpu_percent(interval=None),
                         'mem_usage': psutil.virtual_memory().percent,
@@ -279,15 +291,64 @@ METRICS_INTERVAL = 1
                         'system_metrics': system_metrics
                     })
                     
+                    # Print progress information
+                    logging.info(f"""
+Benchmark Progress for {num_servers} servers:
+    Elapsed Time: {elapsed_time:.1f}s / {self.test_duration}s
+    Remaining Time: {remaining_time:.1f}s
+    Current Rate: {rate:.2f} msg/sec
+    CPU Usage: {detailed_metrics[-1]['cpu_usage']:.1f}%
+    Memory Usage: {detailed_metrics[-1]['mem_usage']:.1f}%
+    Metrics Collected: {metrics_collected} / ~{expected_metrics}
+""")
+                    
                 await asyncio.sleep(self.collect_interval)
 
-            # Cooldown phase - stop collecting metrics
-            logging.info("Starting cooldown phase...")
-            await asyncio.sleep(self.cooldown_duration)
+            # Verify metrics collection
+            collection_ratio = metrics_collected / expected_metrics
+            if collection_ratio < 0.9:  # Less than 90% of expected metrics collected
+                logging.warning(f"""
+Metrics collection may be incomplete:
+    Expected metrics: ~{expected_metrics}
+    Collected metrics: {metrics_collected}
+    Collection ratio: {collection_ratio:.1%}
+""")
+            else:
+                logging.info(f"""
+Metrics collection completed successfully:
+    Expected metrics: ~{expected_metrics}
+    Collected metrics: {metrics_collected}
+    Collection ratio: {collection_ratio:.1%}
+""")
 
             # Calculate statistics only from main test phase
-            if detailed_metrics:  # Ensure we have data
+            if detailed_metrics:
+                # Verify data quality
                 rates = [m['rate'] for m in detailed_metrics]
+                zero_rates = sum(1 for r in rates if r == 0)
+                if zero_rates > 0:
+                    logging.warning(f"{zero_rates} samples had zero rate out of {len(rates)} total samples")
+                
+                # Calculate and log statistics
+                stats = {
+                    'avg_rate': statistics.mean(rates),
+                    'min_rate': min(rates),
+                    'max_rate': max(rates),
+                    'stddev': statistics.stdev(rates),
+                    'p95': np.percentile(rates, 95),
+                    'p99': np.percentile(rates, 99)
+                }
+                
+                logging.info(f"""
+Benchmark Statistics for {num_servers} servers:
+    Average Rate: {stats['avg_rate']:.2f} msg/sec
+    Min Rate: {stats['min_rate']:.2f} msg/sec
+    Max Rate: {stats['max_rate']:.2f} msg/sec
+    Standard Deviation: {stats['stddev']:.2f}
+    95th Percentile: {stats['p95']:.2f} msg/sec
+    99th Percentile: {stats['p99']:.2f} msg/sec
+""")
+
                 self.results.append({
                     'num_servers': num_servers,
                     'avg_rate': sum(rates)/len(rates),
