@@ -16,16 +16,5 @@ PRODUCER_BATCH_SIZE = 1048576  # 1MB
 PRODUCER_LINGER_MS = 100
 MAX_REQUEST_SIZE = 1048576  # 1MB
 
-# Kafka topic configuration
-TOPIC_CONFIG = {
-    'num_partitions': 240,  # Optimized for 4 consumers and 5 brokers
-    'replication_factor': 3,
-    'min_insync_replicas': 1,
-    'compression_type': 'zstd',
-    'cleanup_policy': 'delete',
-    'retention_ms': 3600000,  # 1 hour retention
-    'retention_bytes': -1
-}
-
 # Add kafka-python to requirements
 KAFKA_CLIENT_REQUIRED = True
