@@ -3,10 +3,7 @@ from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import KafkaError, KafkaConnectionError, ConsumerStoppedError, UnknownTopicOrPartitionError
 from config import (
     KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC,
-    CONSUMER_GROUP, STATS_INTERVAL,
-    METADATA_MAX_AGE_MS, REQUEST_TIMEOUT_MS,
-    MAX_POLL_INTERVAL_MS, RETRY_BACKOFF_MS,
-    CONNECTIONS_MAX_IDLE_MS
+    CONSUMER_GROUP, STATS_INTERVAL
 )
 import time
 import sys
@@ -188,18 +185,8 @@ class MetricsConsumer:
                     auto_commit_interval_ms=1000,
                     fetch_max_wait_ms=500,
                     fetch_max_bytes=52428800,  # 50MB max fetch
-                    check_crcs=False,
-                    metadata_max_age_ms=METADATA_MAX_AGE_MS,  # More frequent metadata updates
                     session_timeout_ms=30000,
-                    heartbeat_interval_ms=10000,
-                    request_timeout_ms=REQUEST_TIMEOUT_MS,
-                    max_poll_interval_ms=MAX_POLL_INTERVAL_MS,
-                    retry_backoff_ms=RETRY_BACKOFF_MS,
-                    connections_max_idle_ms=CONNECTIONS_MAX_IDLE_MS,
-                    # Remove group_instance_id for more flexible failover
-                    api_version_auto_timeout_ms=60000,  # Longer timeout for API version detection
-                    reconnect_backoff_max_ms=10000,  # Maximum reconnect backoff
-                    reconnect_backoff_ms=100  # Initial reconnect backoff
+                    heartbeat_interval_ms=10000
                 )
 
                 self.logger.info("Starting consumer...")
