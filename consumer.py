@@ -69,10 +69,15 @@ class MetricsConsumer:
                          max_time=30)
     async def _fetch_with_retry(self):
         try:
-            message = await anext(self.consumer)  # Use anext instead of __anext__
+            # Use __anext__ directly instead of anext()
+            message = await self.consumer.__anext__()
             self.last_successful_fetch = time.time()
             self.consecutive_errors = 0
             return message
+        except StopAsyncIteration:
+            # This is normal when consumer is stopping
+            self.logger.info("Consumer iteration stopped")
+            raise
         except ConsumerStoppedError:
             self.logger.error("Consumer stopped, attempting restart")
             await self.restart_consumer()
@@ -125,10 +130,21 @@ class MetricsConsumer:
                 self.logger.warning("No successful fetches in health check interval")
                 return False
 
-            # Check if consumer is still connected to Kafka
-            connected = await self.consumer._client.ready()
+            # Check if consumer's coordinator is connected
+            coordinator_id = self.consumer._coordinator.coordinator_id
+            if coordinator_id is None:
+                self.logger.warning("No coordinator connection")
+                return False
+
+            # Check if consumer is connected to at least one broker
+            connected = False
+            for node_id in self.consumer._client.cluster.brokers():
+                if await self.consumer._client.ready(node_id):
+                    connected = True
+                    break
+
             if not connected:
-                self.logger.warning("Consumer not connected to Kafka broker")
+                self.logger.warning("Consumer not connected to any broker")
                 return False
 
             return True
@@ -228,7 +244,7 @@ class MetricsConsumer:
                 await asyncio.sleep(5)
 
     async def consume(self):
-        """Modified consume method with better aiokafka error handling"""
+        """Modified consume method with better error handling"""
         self.stats_task = asyncio.create_task(self._collect_stats())
         self.health_check_task = asyncio.create_task(self._health_check_loop())
         
@@ -238,6 +254,12 @@ class MetricsConsumer:
                     message = await self._fetch_with_retry()
                     if message:  # Add null message check
                         await self.process_message(message.value.decode('utf-8'))
+                except StopAsyncIteration:
+                    self.logger.info("Consumer iteration completed")
+                    if await self.restart_consumer():
+                        continue
+                    else:
+                        break
                 except asyncio.CancelledError:
                     self.logger.info("Consumer cancelled")
                     break
