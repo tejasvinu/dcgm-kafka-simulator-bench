@@ -20,8 +20,6 @@ class MetricsProducer:
             bootstrap_servers=self.bootstrap_servers,
             compression_type=PRODUCER_COMPRESSION,  # Using config value
             client_id="dcgm-metrics-producer",
-            linger_ms=PRODUCER_LINGER_MS,
-            batch_size=PRODUCER_BATCH_SIZE,
             request_timeout_ms=30000,
             retry_backoff_ms=100,
             enable_idempotence=True,

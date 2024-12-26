@@ -19,7 +19,6 @@ class MetricsConsumer:
         self.consumer = None
         self.message_count = 0
         self.start_time = time.time()
-        self.batch_size = BATCH_SIZE
         self.max_init_retries = 3
         self.init_retry_delay = 5
         self.process = psutil.Process(os.getpid())
@@ -125,70 +124,33 @@ class MetricsConsumer:
 
     async def consume(self):
         try:
-            batch = []
             async for message in self.consumer:
                 try:
-                    batch.append(message.value.decode('utf-8'))
-                    
-                    if len(batch) >= self.batch_size:
-                        await self.process_batch(batch)
-                        batch = []
-                        
+                    await self.process_message(message.value.decode('utf-8'))
                 except Exception as e:
                     print(f"Error processing message: {e}", file=sys.stderr)
                     continue
-
         except asyncio.CancelledError:
-            if batch:  # Process remaining messages
-                await self.process_batch(batch)
             await self.stop()
         except Exception as e:
             print(f"Error in consumer loop: {e}", file=sys.stderr)
             await self.stop()
             sys.exit(1)
 
-    async def process_batch(self, batch):
-        """Process a batch of messages efficiently"""
-        batch_start = time.time()
-        processed_count = 0
-        error_count = 0
-        
+    async def process_message(self, message):
+        """Process a single message"""
         try:
-            for message in batch:
-                try:
-                    metrics = message.split('\n')
-                    for metric in metrics:
-                        if not metric:
-                            continue
-                            
-                        fields = metric.split('|')
-                        if len(fields) == 6:
-                            processed_count += 1
-                        else:
-                            error_count += 1
-                            
-                except Exception as e:
-                    error_count += 1
-                    self.logger.warning(f"Error processing message: {e}")
-            
-            self.message_count += processed_count
-            batch_time = time.time() - batch_start
-            batch_rate = len(batch) / batch_time
-            
-            if error_count > 0:
-                self.logger.warning(
-                    f"Batch processing stats: Size={len(batch)}, "
-                    f"Time={batch_time:.3f}s, Rate={batch_rate:.2f} msg/s, "
-                    f"Errors={error_count}"
-                )
-            else:
-                self.logger.debug(
-                    f"Batch processing stats: Size={len(batch)}, "
-                    f"Time={batch_time:.3f}s, Rate={batch_rate:.2f} msg/s"
-                )
-                
+            metrics = message.split('\n')
+            for metric in metrics:
+                if not metric:
+                    continue
+                    
+                fields = metric.split('|')
+                if len(fields) == 6:
+                    self.message_count += 1
+                    
         except Exception as e:
-            self.logger.error(f"Batch processing failed: {e}", exc_info=True)
+            self.logger.warning(f"Error processing message: {e}")
             raise
 
     async def stop(self):
