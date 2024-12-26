@@ -9,12 +9,36 @@ import sys
 import logging
 import psutil
 import os
+from datetime import datetime
 
-logging.basicConfig(level=logging.INFO,
-                   format='%(asctime)s - %(name)s - %(levelname)s - PID:%(process)d - %(message)s')
+def setup_logging():
+    log_dir = "consumer_logs"
+    os.makedirs(log_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"{log_dir}/consumer_{os.getpid()}_{timestamp}.log"
+    
+    # Create handlers
+    file_handler = logging.FileHandler(filename=log_file)
+    console_handler = logging.StreamHandler(sys.stdout)
+    
+    # Create formatters and add it to handlers
+    log_format = '%(asctime)s - %(name)s - %(levelname)s - PID:%(process)d - %(message)s'
+    file_handler.setFormatter(logging.Formatter(log_format))
+    console_handler.setFormatter(logging.Formatter(log_format))
+    
+    # Get root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    # Add handlers to the logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return log_file
 
 class MetricsConsumer:
     def __init__(self):
+        self.log_file = setup_logging()  # Set up logging
         self.bootstrap_servers = ','.join(KAFKA_BOOTSTRAP_SERVERS)
         self.consumer = None
         self.message_count = 0

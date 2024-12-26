@@ -20,6 +20,31 @@ from config import (
     NUM_CONSUMERS, CONSUMER_GROUP
 )
 
+# Update logging configuration at the start of the file
+def setup_logging(timestamp):
+    log_dir = "benchmark_logs"
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = f"{log_dir}/benchmark_{timestamp}.log"
+    
+    # Create handlers
+    file_handler = logging.FileHandler(filename=log_file)
+    console_handler = logging.StreamHandler(sys.stdout)
+    
+    # Create formatters and add it to handlers
+    log_format = '%(asctime)s - %(levelname)s - %(message)s'
+    file_handler.setFormatter(logging.Formatter(log_format))
+    console_handler.setFormatter(logging.Formatter(log_format))
+    
+    # Get root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    # Add handlers to the logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return log_file
+
 logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -44,9 +69,12 @@ class ProcessOutputReader(threading.Thread):
 
 class BenchmarkRunner:
     def __init__(self):
-        self.results_dir = "benchmark_results"
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.results_dir = "benchmark_results"
+        self.log_file = setup_logging(self.timestamp)  # Set up logging
         os.makedirs(f"{self.results_dir}/{self.timestamp}", exist_ok=True)
+        
+        logging.info(f"Benchmark started. Log file: {self.log_file}")
         # Reduced server counts for more thorough testing
         self.server_counts = [8, 16, 32, 128, 256, 512, 1024, 2048, 4096, 8192]
         self.results = []
@@ -579,6 +607,7 @@ Benchmark Statistics for {num_servers} servers:
 
     def _generate_html_report(self, df):
         """Generate enhanced HTML report"""
+        # Add log file information to the HTML report
         template = """
         <!DOCTYPE html>
         <html>
@@ -670,6 +699,7 @@ Benchmark Statistics for {num_servers} servers:
                     <li>Cooldown Duration: {cooldown_duration} seconds</li>
                     <li>Number of Server Configurations: {num_configs}</li>
                     <li>Total Messages Processed: {total_messages}</li>
+                    <li>Log File: <a href="../{log_file}">{log_file}</a></li>
                 </ul>
             </div>
 
@@ -715,7 +745,8 @@ Benchmark Statistics for {num_servers} servers:
             cooldown_duration=self.cooldown_duration,
             num_configs=len(self.server_counts),
             total_messages=df['message_count'].sum(),
-            detailed_stats_table=detailed_stats
+            detailed_stats_table=detailed_stats,
+            log_file=self.log_file
         )
         
         with open(f"{self.results_dir}/{self.timestamp}/enhanced_report.html", "w") as f:

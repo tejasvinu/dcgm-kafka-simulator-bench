@@ -7,9 +7,38 @@ from config import (
     PRODUCER_COMPRESSION, PRODUCER_BATCH_SIZE, 
     PRODUCER_LINGER_MS, MAX_REQUEST_SIZE
 )
+import os
+import sys
+from datetime import datetime
+
+def setup_logging():
+    log_dir = "producer_logs"
+    os.makedirs(log_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"{log_dir}/producer_{os.getpid()}_{timestamp}.log"
+    
+    # Create handlers
+    file_handler = logging.FileHandler(filename=log_file)
+    console_handler = logging.StreamHandler(sys.stdout)
+    
+    # Create formatters and add it to handlers
+    log_format = '%(asctime)s - %(levelname)s - %(message)s'
+    file_handler.setFormatter(logging.Formatter(log_format))
+    console_handler.setFormatter(logging.Formatter(log_format))
+    
+    # Get root logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    
+    # Add handlers to the logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    
+    return log_file
 
 class MetricsProducer:
     def __init__(self):
+        self.log_file = setup_logging()  # Set up logging
         self.producer = None
         self.bootstrap_servers = ','.join(KAFKA_BOOTSTRAP_SERVERS)
         self.max_retries = 3
