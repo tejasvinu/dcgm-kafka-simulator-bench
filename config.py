@@ -15,6 +15,3 @@ PRODUCER_COMPRESSION = 'zstd'  # Changed to zstd compression
 PRODUCER_BATCH_SIZE = 1048576  # 1MB
 PRODUCER_LINGER_MS = 100
 MAX_REQUEST_SIZE = 1048576  # 1MB
-
-# Add kafka-python to requirements
-KAFKA_CLIENT_REQUIRED = True
