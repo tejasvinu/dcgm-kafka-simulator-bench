@@ -13,7 +13,6 @@ import os
 from datetime import datetime
 import backoff
 import signal
-import functools
 
 def setup_logging():
     log_dir = "consumer_logs"
@@ -187,14 +186,17 @@ class MetricsConsumer:
                     fetch_max_wait_ms=500,
                     fetch_max_bytes=52428800,  # 50MB max fetch
                     check_crcs=False,
+                    metadata_max_age_ms=METADATA_MAX_AGE_MS,  # More frequent metadata updates
                     session_timeout_ms=30000,
                     heartbeat_interval_ms=10000,
-                    request_timeout_ms=70000,
-                    max_poll_interval_ms=300000,
-                    retry_backoff_ms=500,  # Add retry backoff
-                    connections_max_idle_ms=60000,  # Add max idle time
-                    group_instance_id=f"consumer-{self.consumer_id}",  # Stable identity
-                    api_version="2.4.0"
+                    request_timeout_ms=REQUEST_TIMEOUT_MS,
+                    max_poll_interval_ms=MAX_POLL_INTERVAL_MS,
+                    retry_backoff_ms=RETRY_BACKOFF_MS,
+                    connections_max_idle_ms=CONNECTIONS_MAX_IDLE_MS,
+                    # Remove group_instance_id for more flexible failover
+                    api_version_auto_timeout_ms=60000,  # Longer timeout for API version detection
+                    reconnect_backoff_max_ms=10000,  # Maximum reconnect backoff
+                    reconnect_backoff_ms=100  # Initial reconnect backoff
                 )
 
                 self.logger.info("Starting consumer...")

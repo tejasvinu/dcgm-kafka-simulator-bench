@@ -5,7 +5,9 @@ import logging
 from config import (
     KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, 
     PRODUCER_COMPRESSION, PRODUCER_BATCH_SIZE, 
-    PRODUCER_LINGER_MS, MAX_REQUEST_SIZE
+    PRODUCER_LINGER_MS, MAX_REQUEST_SIZE,
+    REQUEST_TIMEOUT_MS, METADATA_MAX_AGE_MS,
+    RETRY_BACKOFF_MS, CONNECTIONS_MAX_IDLE_MS
 )
 import os
 import sys
@@ -49,11 +51,17 @@ class MetricsProducer:
             bootstrap_servers=self.bootstrap_servers,
             compression_type=PRODUCER_COMPRESSION,  # Using config value
             client_id="dcgm-metrics-producer",
-            request_timeout_ms=30000,
-            retry_backoff_ms=100,
+            request_timeout_ms=REQUEST_TIMEOUT_MS,
+            metadata_max_age_ms=METADATA_MAX_AGE_MS,
+            retry_backoff_ms=RETRY_BACKOFF_MS,
+            connections_max_idle_ms=CONNECTIONS_MAX_IDLE_MS,
             enable_idempotence=True,
             max_request_size=MAX_REQUEST_SIZE,
             acks='all',  # Ensure durability with the new replication settings
+            max_batch_size=16384,
+            linger_ms=100,
+            reconnect_backoff_max_ms=10000,
+            reconnect_backoff_ms=100,
             partitioner=lambda key, all_partitions, available: hash(key) % len(all_partitions)
         )
         await self.producer.start()
