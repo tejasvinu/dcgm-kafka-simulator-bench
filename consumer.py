@@ -191,11 +191,10 @@ class MetricsConsumer:
                     heartbeat_interval_ms=10000,
                     request_timeout_ms=70000,
                     max_poll_interval_ms=300000,
-                    group_instance_id=None,
-                    api_version="2.4.0",
                     retry_backoff_ms=500,  # Add retry backoff
                     connections_max_idle_ms=60000,  # Add max idle time
-                    group_instance_id=f"consumer-{self.consumer_id}"  # Add stable identity
+                    group_instance_id=f"consumer-{self.consumer_id}",  # Stable identity
+                    api_version="2.4.0"
                 )
                 
                 # Register callbacks
