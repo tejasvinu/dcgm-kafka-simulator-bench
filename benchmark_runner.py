@@ -17,8 +17,7 @@ import json
 from typing import Dict, List
 from config import (
     KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, NUM_SERVERS, 
-    NUM_CONSUMERS, CONSUMER_GROUP, BATCH_SIZE,
-    TOPIC_CONFIG
+    NUM_CONSUMERS, CONSUMER_GROUP, BATCH_SIZE
 )
 
 logging.basicConfig(level=logging.INFO,
@@ -185,9 +184,6 @@ PRODUCER_COMPRESSION = 'zstd'
 PRODUCER_BATCH_SIZE = 1048576
 PRODUCER_LINGER_MS = 100
 MAX_REQUEST_SIZE = 1048576
-
-# Kafka topic configuration
-TOPIC_CONFIG = {TOPIC_CONFIG}
 """)
 
             # Start multiple consumer processes
