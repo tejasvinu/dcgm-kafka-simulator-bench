@@ -10,6 +10,8 @@ import logging
 import psutil
 import os
 from datetime import datetime
+from kafka.errors import KafkaError, UnknownError
+import backoff
 
 def setup_logging():
     log_dir = "consumer_logs"
@@ -52,6 +54,52 @@ class MetricsConsumer:
         self.stats_interval = STATS_INTERVAL  # Log stats every 5 seconds
         self.partitions_processed = set()
         self.logger.info(f"Initializing consumer with bootstrap servers: {self.bootstrap_servers}")
+        self.max_fetch_retries = 5
+        self.fetch_retry_delay = 2
+        self.health_check_interval = 30  # seconds
+        self.last_successful_fetch = time.time()
+        self.consecutive_errors = 0
+        self.max_consecutive_errors = 10
+
+    @backoff.on_exception(backoff.expo,
+                         (KafkaError, UnknownError),
+                         max_tries=5,
+                         max_time=30)
+    async def _fetch_with_retry(self):
+        try:
+            message = await self.consumer.__anext__()
+            self.last_successful_fetch = time.time()
+            self.consecutive_errors = 0
+            return message
+        except Exception as e:
+            self.consecutive_errors += 1
+            self.logger.warning(f"Fetch error (attempt {self.consecutive_errors}): {str(e)}")
+            if self.consecutive_errors >= self.max_consecutive_errors:
+                self.logger.error("Too many consecutive errors, forcing consumer restart")
+                await self.restart_consumer()
+            raise
+
+    async def restart_consumer(self):
+        """Restart the consumer connection"""
+        self.logger.info("Restarting consumer connection...")
+        if self.consumer:
+            await self.consumer.stop()
+        
+        # Wait before reconnecting
+        await asyncio.sleep(5)
+        
+        # Reinitialize consumer
+        self.consumer = None
+        await self.start()
+        self.consecutive_errors = 0
+        self.logger.info("Consumer connection restarted")
+
+    async def check_connection_health(self):
+        """Check if the consumer connection is healthy"""
+        if time.time() - self.last_successful_fetch > self.health_check_interval:
+            self.logger.warning("No successful fetches in health check interval")
+            return False
+        return True
 
     async def start(self):
         retries = 0
@@ -145,19 +193,41 @@ class MetricsConsumer:
                 await asyncio.sleep(5)
 
     async def consume(self):
+        """Modified consume method with better error handling"""
+        self.stats_task = asyncio.create_task(self._collect_stats())
+        self.health_check_task = asyncio.create_task(self._health_check_loop())
+        
         try:
-            async for message in self.consumer:
+            while True:
                 try:
+                    message = await self._fetch_with_retry()
                     await self.process_message(message.value.decode('utf-8'))
+                except asyncio.CancelledError:
+                    self.logger.info("Consumer cancelled")
+                    break
                 except Exception as e:
-                    print(f"Error processing message: {e}", file=sys.stderr)
-                    continue
-        except asyncio.CancelledError:
+                    self.logger.error(f"Error in consumer loop: {e}", exc_info=True)
+                    # Check if we should continue or exit
+                    if self.consecutive_errors >= self.max_consecutive_errors:
+                        self.logger.error("Maximum error threshold reached, exiting")
+                        break
+                    await asyncio.sleep(self.fetch_retry_delay)
+        finally:
             await self.stop()
-        except Exception as e:
-            print(f"Error in consumer loop: {e}", file=sys.stderr)
-            await self.stop()
-            sys.exit(1)
+
+    async def _health_check_loop(self):
+        """Periodic health check loop"""
+        while True:
+            try:
+                if not await self.check_connection_health():
+                    self.logger.warning("Health check failed, attempting restart")
+                    await self.restart_consumer()
+                await asyncio.sleep(self.health_check_interval)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.error(f"Error in health check loop: {e}")
+                await asyncio.sleep(5)
 
     async def process_message(self, message):
         """Process a single message"""
@@ -176,8 +246,11 @@ class MetricsConsumer:
             raise
 
     async def stop(self):
-        """Clean shutdown of consumer"""
+        """Enhanced stop method"""
         try:
+            self.logger.info("Stopping consumer...")
+            
+            # Cancel background tasks
             if hasattr(self, 'stats_task'):
                 self.stats_task.cancel()
                 try:
@@ -185,8 +258,15 @@ class MetricsConsumer:
                 except asyncio.CancelledError:
                     pass
                     
+            if hasattr(self, 'health_check_task'):
+                self.health_check_task.cancel()
+                try:
+                    await self.health_check_task
+                except asyncio.CancelledError:
+                    pass
+                    
             if self.consumer:
-                self.logger.info("Closing consumer...")
+                self.logger.info("Closing consumer connection...")
                 await self.consumer.stop()
                 self.logger.info("Consumer closed")
                 
