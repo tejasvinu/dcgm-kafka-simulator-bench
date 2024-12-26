@@ -1,6 +1,6 @@
 import asyncio
 from aiokafka import AIOKafkaConsumer
-from aiokafka.errors import KafkaError, KafkaConnectionError, ConsumerStoppedError
+from aiokafka.errors import KafkaError, KafkaConnectionError, ConsumerStoppedError, UnknownTopicOrPartitionError
 from config import (
     KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC,
     CONSUMER_GROUP, STATS_INTERVAL
@@ -12,6 +12,8 @@ import psutil
 import os
 from datetime import datetime
 import backoff
+import signal
+import functools
 
 def setup_logging():
     log_dir = "consumer_logs"
@@ -62,6 +64,15 @@ class MetricsConsumer:
         self.max_consecutive_errors = 10
         self.reconnect_backoff = 5
         self.max_reconnect_attempts = 3
+        self.running = True
+        self.shutdown_event = asyncio.Event()
+
+    async def handle_shutdown(self, sig):
+        """Handle shutdown signals"""
+        self.logger.info(f"Received shutdown signal {sig.name}")
+        self.running = False
+        self.shutdown_event.set()
+        await self.stop()
 
     @backoff.on_exception(backoff.expo,
                          (KafkaError, KafkaConnectionError),
@@ -153,6 +164,14 @@ class MetricsConsumer:
             return False
 
     async def start(self):
+        # Setup signal handlers
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(
+                sig,
+                lambda s=sig: asyncio.create_task(self.handle_shutdown(s))
+            )
+
         retries = 0
         while retries < self.max_init_retries:
             try:
@@ -173,9 +192,15 @@ class MetricsConsumer:
                     request_timeout_ms=70000,
                     max_poll_interval_ms=300000,
                     group_instance_id=None,
-                    api_version="2.4.0"
+                    api_version="2.4.0",
+                    retry_backoff_ms=500,  # Add retry backoff
+                    connections_max_idle_ms=60000,  # Add max idle time
+                    group_instance_id=f"consumer-{self.consumer_id}"  # Add stable identity
                 )
                 
+                # Register callbacks
+                self.consumer._on_close_cbs.append(self._on_consumer_close)
+
                 self.logger.info("Starting consumer...")
                 await self.consumer.start()
                 self.logger.info("Consumer started, waiting for partition assignment...")
@@ -209,6 +234,12 @@ class MetricsConsumer:
                     self.logger.error(error_msg)
                     print(error_msg, file=sys.stderr)
                     sys.exit(1)
+
+    async def _on_consumer_close(self):
+        """Callback when consumer is closed"""
+        self.logger.info("Consumer is closing")
+        self.running = False
+        self.shutdown_event.set()
 
     def _on_join_failed(self, error):
         """Callback for group join failures"""
@@ -249,7 +280,7 @@ class MetricsConsumer:
         self.health_check_task = asyncio.create_task(self._health_check_loop())
         
         try:
-            while True:
+            while self.running:
                 try:
                     message = await self._fetch_with_retry()
                     if message:  # Add null message check
@@ -264,10 +295,14 @@ class MetricsConsumer:
                     self.logger.info("Consumer cancelled")
                     break
                 except ConsumerStoppedError:
-                    if await self.restart_consumer():
-                        continue
-                    else:
-                        break
+                    if self.running:  # Only retry if not shutting down
+                        if await self.restart_consumer():
+                            continue
+                    break
+                except UnknownTopicOrPartitionError:
+                    self.logger.error("Topic or partition not found")
+                    await asyncio.sleep(5)  # Wait before retry
+                    continue
                 except Exception as e:
                     self.logger.error(f"Error in consumer loop: {e}", exc_info=True)
                     if self.consecutive_errors >= self.max_consecutive_errors:
@@ -309,37 +344,55 @@ class MetricsConsumer:
             raise
 
     async def stop(self):
-        """Enhanced stop method"""
-        try:
-            self.logger.info("Stopping consumer...")
+        """Enhanced stop method with proper cleanup"""
+        if not self.running:
+            return  # Already stopping
             
+        self.running = False
+        self.logger.info("Stopping consumer...")
+        
+        try:
             # Cancel background tasks
+            tasks = []
             if hasattr(self, 'stats_task'):
                 self.stats_task.cancel()
-                try:
-                    await self.stats_task
-                except asyncio.CancelledError:
-                    pass
-                    
+                tasks.append(self.stats_task)
             if hasattr(self, 'health_check_task'):
                 self.health_check_task.cancel()
-                try:
-                    await self.health_check_task
-                except asyncio.CancelledError:
-                    pass
-                    
+                tasks.append(self.health_check_task)
+                
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+                
+            # Stop consumer
             if self.consumer:
                 self.logger.info("Closing consumer connection...")
                 await self.consumer.stop()
+                self.consumer = None
                 self.logger.info("Consumer closed")
                 
         except Exception as e:
             self.logger.error(f"Error during shutdown: {e}", exc_info=True)
+        finally:
+            # Clean up signal handlers
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.remove_signal_handler(sig)
 
 async def main():
-    consumer = MetricsConsumer()
-    await consumer.start()
-    await consumer.consume()
+    consumer = None
+    try:
+        consumer = MetricsConsumer()
+        await consumer.start()
+        await consumer.consume()
+    except Exception as e:
+        logging.error(f"Fatal error: {e}", exc_info=True)
+    finally:
+        if consumer:
+            await consumer.stop()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Received keyboard interrupt, shutting down...")
