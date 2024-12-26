@@ -23,7 +23,8 @@ class MetricsConsumer:
         self.max_init_retries = 3
         self.init_retry_delay = 5
         self.process = psutil.Process(os.getpid())
-        self.logger = logging.getLogger(f'Consumer-{os.getpid()}')
+        self.consumer_id = f"{os.getpid()}_{int(time.time())}"
+        self.logger = logging.getLogger(f'Consumer-{self.consumer_id}')
         self.last_stats_time = time.time()
         self.stats_interval = STATS_INTERVAL  # Log stats every 5 seconds
         self.partitions_processed = set()
@@ -38,58 +39,63 @@ class MetricsConsumer:
                     KAFKA_TOPIC,
                     bootstrap_servers=self.bootstrap_servers,
                     group_id=CONSUMER_GROUP,
-                    client_id=f'dcgm-metrics-consumer-{int(time.time())}',
+                    client_id=f'dcgm-metrics-consumer-{self.consumer_id}',
                     auto_offset_reset='latest',
                     enable_auto_commit=True,
-                    auto_commit_interval_ms=5000,  # Commit every 5 seconds
+                    auto_commit_interval_ms=1000,  # Commit more frequently
                     max_poll_records=self.batch_size,
                     max_partition_fetch_bytes=BATCH_SIZE,  # 1MB
                     fetch_max_wait_ms=500,  # Wait up to 500ms for data
                     fetch_max_bytes=52428800,  # 50MB max fetch
                     check_crcs=False,  # Disable CRC checks for better performance
-                    session_timeout_ms=60000,  # Increased from 30000
-                    heartbeat_interval_ms=20000,  # Increased from 10000
+                    session_timeout_ms=30000,  # Reduced from 60000
+                    heartbeat_interval_ms=10000,  # Reduced from 20000
                     request_timeout_ms=70000,  # Increased from 40000
                     max_poll_interval_ms=300000,  # 5 minutes max poll interval
-                    group_instance_id=f"consumer-{int(time.time())}"  # Add unique instance ID
+                    group_instance_id=None,  # Remove static group membership
+                    api_version="2.4.0"  # Explicitly set API version
                 )
+                
+                # Add error logging callback
+                self.consumer._coordinator._on_join_failed = self._on_join_failed
+                
                 self.logger.info("Starting consumer...")
                 await self.consumer.start()
                 self.logger.info("Consumer started, waiting for partition assignment...")
                 
-                # Wait for partition assignment
-                await asyncio.sleep(5)
+                # Wait for partition assignment with timeout
+                partition_timeout = 30
+                partition_start = time.time()
+                while time.time() - partition_start < partition_timeout:
+                    partitions = self.consumer.assignment()
+                    if partitions:
+                        self.logger.info(f"Consumer assigned partitions: {partitions}")
+                        self.logger.info("Consumer initialized successfully")
+                        print("Consumer initialized successfully")
+                        sys.stdout.flush()
+                        return True
+                    await asyncio.sleep(1)
                 
-                partitions = self.consumer.assignment()
-                if not partitions:
-                    raise RuntimeError("No partitions assigned after startup")
-                
-                self.logger.info(f"Consumer assigned partitions: {partitions}")
-                self.logger.info("Consumer initialized successfully")
-                print("Consumer initialized successfully")
-                sys.stdout.flush()
-
-                # Add partition assignment callback
-                self.consumer._on_partitions_assigned = self._on_partitions_assigned
-
-                # Start stats collection
-                self.stats_task = asyncio.create_task(self._collect_stats())
-                
-                return
+                raise RuntimeError("No partitions assigned after timeout")
                 
             except Exception as e:
-                self.logger.error(f"Error during consumer initialization: {e}")
+                self.logger.error(f"Error during consumer initialization: {str(e)}", exc_info=True)
                 if self.consumer:
                     await self.consumer.stop()
                 retries += 1
                 if retries < self.max_init_retries:
-                    self.logger.info(f"Retrying in {self.init_retry_delay} seconds...")
-                    await asyncio.sleep(self.init_retry_delay)
+                    delay = self.init_retry_delay * (2 ** retries)  # Exponential backoff
+                    self.logger.info(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
                 else:
                     error_msg = f"Failed to initialize consumer after {self.max_init_retries} attempts"
                     self.logger.error(error_msg)
                     print(error_msg, file=sys.stderr)
                     sys.exit(1)
+
+    def _on_join_failed(self, error):
+        """Callback for group join failures"""
+        self.logger.error(f"Group join failed: {error}")
 
     async def _on_partitions_assigned(self, assigned):
         """Callback when partitions are assigned"""

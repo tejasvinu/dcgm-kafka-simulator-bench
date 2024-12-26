@@ -26,3 +26,6 @@ TOPIC_CONFIG = {
     'retention_ms': 3600000,  # 1 hour retention
     'retention_bytes': -1
 }
+
+# Add kafka-python to requirements
+KAFKA_CLIENT_REQUIRED = True
