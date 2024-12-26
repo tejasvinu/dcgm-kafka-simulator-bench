@@ -56,9 +56,6 @@ class MetricsConsumer:
                     api_version="2.4.0"  # Explicitly set API version
                 )
                 
-                # Add error logging callback
-                self.consumer._coordinator._on_join_failed = self._on_join_failed
-                
                 self.logger.info("Starting consumer...")
                 await self.consumer.start()
                 self.logger.info("Consumer started, waiting for partition assignment...")
