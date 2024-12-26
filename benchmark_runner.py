@@ -15,6 +15,11 @@ import psutil
 import numpy as np
 import json
 from typing import Dict, List
+from config import (
+    KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, NUM_SERVERS, 
+    NUM_CONSUMERS, CONSUMER_GROUP, BATCH_SIZE,
+    TOPIC_CONFIG
+)
 
 logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(levelname)s - %(message)s')
@@ -64,7 +69,8 @@ class BenchmarkRunner:
             'network_io': [],
             'disk_io': [],
             'gc_stats': [],
-            'partition_distribution': []
+            'partition_distribution': [],
+            'consumer_stats': [[] for _ in range(NUM_CONSUMERS)]  # Per-consumer stats
         }
         
         # Expanded server counts for more granular data
@@ -72,6 +78,8 @@ class BenchmarkRunner:
             8, 16, 32, 64, 128, 256, 512,
             1024, 2048,  4096, 8192
         ]
+        self.num_consumers = NUM_CONSUMERS
+        self.stats_interval = 5
 
     def cleanup_processes(self):
         for process in self.current_processes:
@@ -155,64 +163,83 @@ class BenchmarkRunner:
         }
 
     async def run_benchmark(self, num_servers):
-        consumer_proc = None
+        consumer_procs = []
         server_proc = None
         try:
             # Update config
             with open("config.py", "w") as f:
-                f.write(f"""KAFKA_BOOTSTRAP_SERVERS = ['10.180.8.24:9092', '10.180.8.24:9093', '10.180.8.24:9094','10.180.8.24:9095','10.180.8.24:9096']
-KAFKA_TOPIC = 'dcgm-metrics-test'
+                f.write(f"""KAFKA_BOOTSTRAP_SERVERS = {KAFKA_BOOTSTRAP_SERVERS}
+KAFKA_TOPIC = '{KAFKA_TOPIC}'
 NUM_SERVERS = {num_servers}
 GPUS_PER_SERVER = 4
 METRICS_INTERVAL = 1
+
+# Consumer configuration
+NUM_CONSUMERS = {NUM_CONSUMERS}
+CONSUMER_GROUP = '{CONSUMER_GROUP}'
+BATCH_SIZE = {BATCH_SIZE}
+STATS_INTERVAL = 5
+
+# Producer configuration
+PRODUCER_COMPRESSION = 'zstd'
+PRODUCER_BATCH_SIZE = 1048576
+PRODUCER_LINGER_MS = 100
+MAX_REQUEST_SIZE = 1048576
+
+# Kafka topic configuration
+TOPIC_CONFIG = {TOPIC_CONFIG}
 """)
 
-            # Start consumer with metrics collection
-            consumer_output_queue = queue.Queue()
-            consumer_error_queue = queue.Queue()
-            
-            logging.info("Starting consumer process...")
-            consumer_proc = subprocess.Popen(
-                [sys.executable, "consumer.py"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=1,
-                universal_newlines=True,
-                text=True
-            )
-            self.current_processes.append(consumer_proc)
+            # Start multiple consumer processes
+            logging.info(f"Starting {self.num_consumers} consumer processes...")
+            consumer_output_queues = [queue.Queue() for _ in range(self.num_consumers)]
+            consumer_error_queues = [queue.Queue() for _ in range(self.num_consumers)]
 
-            # Start output and error readers
-            consumer_out_reader = ProcessOutputReader(consumer_proc, consumer_output_queue, is_stderr=False)
-            consumer_err_reader = ProcessOutputReader(consumer_proc, consumer_error_queue, is_stderr=True)
-            consumer_out_reader.start()
-            consumer_err_reader.start()
+            for i in range(self.num_consumers):
+                consumer_proc = subprocess.Popen(
+                    [sys.executable, "consumer.py"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=1,
+                    universal_newlines=True,
+                    text=True
+                )
+                self.current_processes.append(consumer_proc)
+                consumer_procs.append(consumer_proc)
 
-            # Wait for consumer initialization
+                # Start output and error readers for each consumer
+                consumer_out_reader = ProcessOutputReader(consumer_proc, consumer_output_queues[i], is_stderr=False)
+                consumer_err_reader = ProcessOutputReader(consumer_proc, consumer_error_queues[i], is_stderr=True)
+                consumer_out_reader.start()
+                consumer_err_reader.start()
+
+            # Wait for all consumers to initialize
             logging.info("Waiting for consumer initialization...")
             initialization_timeout = 120  # Increased from 30 to 120 seconds
             start_wait = time.time()
             initialized = False
 
             while time.time() - start_wait < initialization_timeout:
-                if consumer_proc.poll() is not None:
+                if any(proc.poll() is not None for proc in consumer_procs):
                     # Process died during initialization
                     error_msgs = []
-                    while True:
-                        try:
-                            error_msgs.append(consumer_error_queue.get_nowait())
-                        except queue.Empty:
-                            break
+                    for error_queue in consumer_error_queues:
+                        while True:
+                            try:
+                                error_msgs.append(error_queue.get_nowait())
+                            except queue.Empty:
+                                break
                     error_text = "\n".join(error_msgs)
                     raise RuntimeError(f"Consumer process died during initialization:\n{error_text}")
 
                 # Check for successful initialization
                 try:
-                    line = consumer_output_queue.get_nowait()
-                    logging.info(f"Consumer output: {line}")  # Changed from debug to info
-                    if "Consumer initialized successfully" in line:
-                        initialized = True
-                        break
+                    for output_queue in consumer_output_queues:
+                        line = output_queue.get_nowait()
+                        logging.info(f"Consumer output: {line}")  # Changed from debug to info
+                        if "Consumer initialized successfully" in line:
+                            initialized = True
+                            break
                 except queue.Empty:
                     await asyncio.sleep(1)  # Increased from 0.1 to 1 second
                     continue
@@ -220,11 +247,12 @@ METRICS_INTERVAL = 1
             if not initialized:
                 # Collect any error messages before raising the timeout error
                 error_msgs = []
-                while True:
-                    try:
-                        error_msgs.append(consumer_error_queue.get_nowait())
-                    except queue.Empty:
-                        break
+                for error_queue in consumer_error_queues:
+                    while True:
+                        try:
+                            error_msgs.append(error_queue.get_nowait())
+                        except queue.Empty:
+                            break
                 error_text = "\n".join(error_msgs) if error_msgs else "No error messages available"
                 raise RuntimeError(f"Consumer failed to initialize within {initialization_timeout} seconds.\nLast known state:\n{error_text}")
 
@@ -251,12 +279,13 @@ METRICS_INTERVAL = 1
             logging.info("Starting warmup phase...")
             start_time = time.time()
             while time.time() - start_time < self.warmup_duration:
-                if not self.check_process_health(consumer_proc, server_proc, 
-                                              consumer_error_queue, server_error_queue):
+                if not self.check_process_health(consumer_procs, server_proc, 
+                                              consumer_error_queues, server_error_queue):
                     raise RuntimeError("Process died during warmup")
                 # Clear any metrics from warmup period
-                while not consumer_output_queue.empty():
-                    consumer_output_queue.get()
+                for output_queue in consumer_output_queues:
+                    while not output_queue.empty():
+                        output_queue.get()
                 await asyncio.sleep(self.metric_interval)
 
             # Main test phase - only collect metrics during this period
@@ -268,27 +297,34 @@ METRICS_INTERVAL = 1
             expected_metrics = self.test_duration // self.collect_interval
             
             while time.time() - test_start_time < self.test_duration:
-                if not self.check_process_health(consumer_proc, server_proc,
-                                              consumer_error_queue, server_error_queue):
+                if not self.check_process_health(consumer_procs, server_proc,
+                                              consumer_error_queues, server_error_queue):
                     raise RuntimeError("Process died during test")
                 
                 # Collect detailed metrics
                 current_time = time.time()
                 system_metrics = await self.collect_system_metrics()
-                rate = await self.collect_metrics(consumer_output_queue)
+                rates = []
                 
-                if rate > 0:
+                for consumer_queue in consumer_output_queues:
+                    rate = await self.collect_metrics(consumer_queue)
+                    if rate > 0:
+                        rates.append(rate)
+
+                if rates:
+                    avg_rate = statistics.mean(rates)
                     metrics_collected += 1
                     elapsed_time = current_time - test_start_time
                     remaining_time = self.test_duration - elapsed_time
                     
                     detailed_metrics.append({
                         'timestamp': current_time,
-                        'rate': rate,
+                        'rate': avg_rate,
                         'cpu_usage': psutil.cpu_percent(interval=None),
                         'mem_usage': psutil.virtual_memory().percent,
                         'num_servers': num_servers,
-                        'system_metrics': system_metrics
+                        'system_metrics': system_metrics,
+                        'consumer_rates': rates
                     })
                     
                     # Print progress information
@@ -296,7 +332,7 @@ METRICS_INTERVAL = 1
 Benchmark Progress for {num_servers} servers:
     Elapsed Time: {elapsed_time:.1f}s / {self.test_duration}s
     Remaining Time: {remaining_time:.1f}s
-    Current Rate: {rate:.2f} msg/sec
+    Current Rate: {avg_rate:.2f} msg/sec
     CPU Usage: {detailed_metrics[-1]['cpu_usage']:.1f}%
     Memory Usage: {detailed_metrics[-1]['mem_usage']:.1f}%
     Metrics Collected: {metrics_collected} / ~{expected_metrics}
@@ -373,13 +409,14 @@ Benchmark Statistics for {num_servers} servers:
         except Exception as e:
             logging.error(f"Error during benchmark with {num_servers} servers: {e}")
             # Collect any remaining error output
-            if consumer_proc and consumer_error_queue:
+            if consumer_procs and consumer_error_queues:
                 error_msgs = []
-                while True:
-                    try:
-                        error_msgs.append(consumer_error_queue.get_nowait())
-                    except queue.Empty:
-                        break
+                for error_queue in consumer_error_queues:
+                    while True:
+                        try:
+                            error_msgs.append(error_queue.get_nowait())
+                        except queue.Empty:
+                            break
                 if error_msgs:
                     logging.error(f"Consumer errors:\n{' '.join(error_msgs)}")
             
@@ -403,12 +440,19 @@ Benchmark Statistics for {num_servers} servers:
         finally:
             self.cleanup_processes()
 
-    def check_process_health(self, consumer_proc, server_proc, consumer_error_queue, server_error_queue):
-        """Check if processes are still running and collect error messages if not"""
-        if consumer_proc.poll() is not None or server_proc.poll() is not None:
-            self.collect_error_messages(consumer_error_queue, "Consumer")
+    def check_process_health(self, consumer_procs, server_proc, consumer_error_queues, server_error_queue):
+        """Check if all processes are still running"""
+        # Check server process health
+        if server_proc.poll() is not None:
             self.collect_error_messages(server_error_queue, "Server")
             return False
+
+        # Check each consumer process health
+        for i, consumer_proc in enumerate(consumer_procs):
+            if consumer_proc.poll() is not None:
+                self.collect_error_messages(consumer_error_queues[i], f"Consumer {i}")
+                return False
+
         return True
 
     def collect_error_messages(self, error_queue, process_name):

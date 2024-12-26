@@ -2,7 +2,11 @@ import asyncio
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaTimeoutError
 import logging
-from config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC
+from config import (
+    KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, 
+    PRODUCER_COMPRESSION, PRODUCER_BATCH_SIZE, 
+    PRODUCER_LINGER_MS, MAX_REQUEST_SIZE
+)
 
 class MetricsProducer:
     def __init__(self):
@@ -14,15 +18,16 @@ class MetricsProducer:
     async def start(self):
         self.producer = AIOKafkaProducer(
             bootstrap_servers=self.bootstrap_servers,
-            compression_type="snappy",  # Changed to snappy for better performance
+            compression_type=PRODUCER_COMPRESSION,  # Using config value
             client_id="dcgm-metrics-producer",
-            linger_ms=100,  # Wait up to 100ms to batch messages
-            max_batch_size=1048576,  # 1MB batch size
-            request_timeout_ms=30000,  # 30 seconds timeout
+            linger_ms=PRODUCER_LINGER_MS,
+            batch_size=PRODUCER_BATCH_SIZE,
+            request_timeout_ms=30000,
             retry_backoff_ms=100,
-            enable_idempotence=True,  # Ensure exactly-once delivery
-            max_request_size=1048576,  # 1MB max request size
-            partitioner=lambda key, all_partitions, available: hash(key) % len(all_partitions)  # Custom partitioner
+            enable_idempotence=True,
+            max_request_size=MAX_REQUEST_SIZE,
+            acks='all',  # Ensure durability with the new replication settings
+            partitioner=lambda key, all_partitions, available: hash(key) % len(all_partitions)
         )
         await self.producer.start()
 
