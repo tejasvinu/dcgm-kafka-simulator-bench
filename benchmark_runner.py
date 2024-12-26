@@ -20,7 +20,6 @@ from config import (
     NUM_CONSUMERS, CONSUMER_GROUP, BATCH_SIZE,
     TOPIC_CONFIG
 )
-from create_topic import create_topic
 
 logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(levelname)s - %(message)s')
@@ -167,13 +166,6 @@ class BenchmarkRunner:
         consumer_procs = []
         server_proc = None
         try:
-            # Create topic before starting benchmark
-            try:
-                await create_topic()
-            except Exception as e:
-                logging.error(f"Failed to create topic: {e}")
-                raise
-
             # Update config
             with open("config.py", "w") as f:
                 f.write(f"""KAFKA_BOOTSTRAP_SERVERS = {KAFKA_BOOTSTRAP_SERVERS}
