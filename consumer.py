@@ -185,8 +185,10 @@ class MetricsConsumer:
                     auto_commit_interval_ms=1000,
                     fetch_max_wait_ms=500,
                     fetch_max_bytes=52428800,  # 50MB max fetch
+                    check_crcs=False,
                     session_timeout_ms=30000,
-                    heartbeat_interval_ms=10000
+                    heartbeat_interval_ms=10000,
+                    api_version='auto'  # Let Kafka auto-detect API version
                 )
 
                 self.logger.info("Starting consumer...")

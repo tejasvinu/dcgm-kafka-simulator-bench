@@ -50,7 +50,8 @@ class MetricsProducer:
             client_id="dcgm-metrics-producer",
             enable_idempotence=True,
             max_request_size=MAX_REQUEST_SIZE,
-            acks='all'
+            acks='all',
+            api_version='auto'  # Let Kafka auto-detect API version
         )
         await self.producer.start()
 

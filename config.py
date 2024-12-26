@@ -1,5 +1,12 @@
-# Basic configuration
-KAFKA_BOOTSTRAP_SERVERS = ['10.180.8.24:9092', '10.180.8.24:9093', '10.180.8.24:9094','10.180.8.24:9095','10.180.8.24:9096']
+# Basic configuration - use multiple brokers for redundancy
+KAFKA_BOOTSTRAP_SERVERS = [
+    '10.180.8.24:9092',
+    '10.180.8.24:9093',
+    '10.180.8.24:9094',
+    '10.180.8.24:9095',
+    '10.180.8.24:9096'
+]  # Using 3 brokers for redundancy
+
 KAFKA_TOPIC = 'dcgm-metrics-test-optimized'
 NUM_SERVERS = 32
 GPUS_PER_SERVER = 4
