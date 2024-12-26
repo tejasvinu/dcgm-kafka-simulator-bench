@@ -3,7 +3,10 @@ from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import KafkaError, KafkaConnectionError, ConsumerStoppedError, UnknownTopicOrPartitionError
 from config import (
     KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC,
-    CONSUMER_GROUP, STATS_INTERVAL
+    CONSUMER_GROUP, STATS_INTERVAL,
+    METADATA_MAX_AGE_MS, REQUEST_TIMEOUT_MS,
+    MAX_POLL_INTERVAL_MS, RETRY_BACKOFF_MS,
+    CONNECTIONS_MAX_IDLE_MS
 )
 import time
 import sys
