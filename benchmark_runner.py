@@ -428,8 +428,15 @@ Benchmark Statistics for {num_servers} servers:
 
             self.results.append({
                 'num_servers': num_servers,
-                'avg_processing_rate': 0,
-                'total_gpus': num_servers * 4,
+                'avg_rate': 0,
+                'min_rate': 0,
+                'max_rate': 0,
+                'stddev': 0,
+                'samples': 0,
+                'avg_cpu': 0,
+                'avg_mem': 0,
+                'test_duration': self.test_duration,
+                'actual_duration': 0,
                 'error': str(e)
             })
 
