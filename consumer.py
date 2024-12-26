@@ -2,7 +2,7 @@ import asyncio
 from aiokafka import AIOKafkaConsumer
 from config import (
     KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC,
-    CONSUMER_GROUP, BATCH_SIZE, STATS_INTERVAL
+    CONSUMER_GROUP, STATS_INTERVAL
 )
 import time
 import sys
@@ -41,18 +41,16 @@ class MetricsConsumer:
                     client_id=f'dcgm-metrics-consumer-{self.consumer_id}',
                     auto_offset_reset='latest',
                     enable_auto_commit=True,
-                    auto_commit_interval_ms=1000,  # Commit more frequently
-                    max_poll_records=self.batch_size,
-                    max_partition_fetch_bytes=BATCH_SIZE,  # 1MB
-                    fetch_max_wait_ms=500,  # Wait up to 500ms for data
+                    auto_commit_interval_ms=1000,
+                    fetch_max_wait_ms=500,
                     fetch_max_bytes=52428800,  # 50MB max fetch
-                    check_crcs=False,  # Disable CRC checks for better performance
-                    session_timeout_ms=30000,  # Reduced from 60000
-                    heartbeat_interval_ms=10000,  # Reduced from 20000
-                    request_timeout_ms=70000,  # Increased from 40000
-                    max_poll_interval_ms=300000,  # 5 minutes max poll interval
-                    group_instance_id=None,  # Remove static group membership
-                    api_version="2.4.0"  # Explicitly set API version
+                    check_crcs=False,
+                    session_timeout_ms=30000,
+                    heartbeat_interval_ms=10000,
+                    request_timeout_ms=70000,
+                    max_poll_interval_ms=300000,
+                    group_instance_id=None,
+                    api_version="2.4.0"
                 )
                 
                 self.logger.info("Starting consumer...")
