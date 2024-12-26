@@ -196,9 +196,6 @@ class MetricsConsumer:
                     group_instance_id=f"consumer-{self.consumer_id}",  # Stable identity
                     api_version="2.4.0"
                 )
-                
-                # Register callbacks
-                self.consumer._on_close_cbs.append(self._on_consumer_close)
 
                 self.logger.info("Starting consumer...")
                 await self.consumer.start()
@@ -233,16 +230,6 @@ class MetricsConsumer:
                     self.logger.error(error_msg)
                     print(error_msg, file=sys.stderr)
                     sys.exit(1)
-
-    async def _on_consumer_close(self):
-        """Callback when consumer is closed"""
-        self.logger.info("Consumer is closing")
-        self.running = False
-        self.shutdown_event.set()
-
-    def _on_join_failed(self, error):
-        """Callback for group join failures"""
-        self.logger.error(f"Group join failed: {error}")
 
     async def _on_partitions_assigned(self, assigned):
         """Callback when partitions are assigned"""
@@ -362,11 +349,14 @@ class MetricsConsumer:
                 
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
-                
-            # Stop consumer
+            
+            # Ensure proper consumer shutdown
             if self.consumer:
                 self.logger.info("Closing consumer connection...")
-                await self.consumer.stop()
+                try:
+                    await asyncio.wait_for(self.consumer.stop(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    self.logger.warning("Consumer stop timed out after 10 seconds")
                 self.consumer = None
                 self.logger.info("Consumer closed")
                 
@@ -376,7 +366,10 @@ class MetricsConsumer:
             # Clean up signal handlers
             loop = asyncio.get_running_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.remove_signal_handler(sig)
+                try:
+                    loop.remove_signal_handler(sig)
+                except NotImplementedError:
+                    pass  # Signal handlers not supported on this platform
 
 async def main():
     consumer = None
