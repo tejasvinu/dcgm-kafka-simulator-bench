@@ -175,14 +175,7 @@ class MetricsConsumer:
                     auto_offset_reset='latest',
                     enable_auto_commit=True,
                     auto_commit_interval_ms=1000,
-                    connections_max_idle_ms=540000,  # 9 minutes
-                    request_timeout_ms=30000,        # 30 seconds
-                    retry_backoff_ms=RETRY_BACKOFF_MS,
-                    reconnect_backoff_max_ms=10000,  # 10 seconds max backoff
-                    reconnect_backoff_ms=50,         # 50ms initial backoff
-                    connection_timeout=CONNECTION_TIMEOUT_MS,
-                    max_retries=MAX_RETRIES,
-                    metadata_max_age_ms=300000,      # 5 minutes
+                    request_timeout_ms=30000,
                     api_version='auto'
                 )
 
