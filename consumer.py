@@ -175,28 +175,60 @@ class MetricsConsumer:
                     auto_offset_reset='latest',
                     enable_auto_commit=True,
                     auto_commit_interval_ms=1000,
+                    security_protocol='PLAINTEXT',
+                    api_version='auto',
                     request_timeout_ms=30000,
-                    api_version='auto'
+                    session_timeout_ms=10000,
+                    heartbeat_interval_ms=3000,
+                    metadata_max_age_ms=5000,  # More frequent metadata refresh
+                    retry_backoff_ms=1000,
+                    max_poll_interval_ms=300000,
+                    connections_max_idle_ms=540000,
                 )
 
-                self.logger.info("Starting consumer...")
-                await self.consumer.start()
-                
-                # Wait for partition assignment with improved timeout handling
+                # Start consumer with backoff retry
+                start_attempts = 0
+                max_start_attempts = 3
+                while start_attempts < max_start_attempts:
+                    try:
+                        self.logger.info(f"Attempting to start consumer (attempt {start_attempts + 1}/{max_start_attempts})")
+                        await self.consumer.start()
+                        break
+                    except Exception as e:
+                        start_attempts += 1
+                        if start_attempts >= max_start_attempts:
+                            raise
+                        self.logger.warning(f"Start attempt failed: {str(e)}, retrying in {2**start_attempts} seconds")
+                        await asyncio.sleep(2**start_attempts)
+
+                # Wait for partition assignment
                 assignment_start = time.time()
-                while time.time() - assignment_start < 30:  # 30 second timeout
-                    partitions = self.consumer.assignment()
-                    if partitions:
-                        self.logger.info(f"Consumer assigned partitions: {partitions}")
-                        return True
+                assignment_timeout = 30  # 30 second timeout
+                assigned_partitions = set()
+
+                while time.time() - assignment_start < assignment_timeout:
+                    try:
+                        partitions = self.consumer.assignment()
+                        if partitions:
+                            assigned_partitions.update(partitions)
+                            self.logger.info(f"Consumer assigned partitions: {assigned_partitions}")
+                            return True
+                        # Force metadata refresh if no partitions assigned
+                        await self.consumer._client.force_metadata_update()
+                    except Exception as e:
+                        self.logger.warning(f"Error checking assignments: {str(e)}")
                     await asyncio.sleep(1)
-                
-                raise RuntimeError("No partitions assigned within timeout period")
-                
+
+                if not assigned_partitions:
+                    raise RuntimeError("No partitions assigned within timeout period")
+
             except Exception as e:
                 self.logger.error(f"Error during consumer initialization: {str(e)}", exc_info=True)
                 if self.consumer:
-                    await self.consumer.stop()
+                    try:
+                        await self.consumer.stop()
+                    except Exception as stop_error:
+                        self.logger.error(f"Error stopping consumer: {stop_error}")
                 retries += 1
                 if retries < self.max_init_retries:
                     delay = self.init_retry_delay * (2 ** retries)
