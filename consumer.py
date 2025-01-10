@@ -163,14 +163,6 @@ class MetricsConsumer:
             return False
 
     async def start(self):
-        # Setup signal handlers
-        for sig in (signal.SIGTERM, signal.SIGINT):
-            loop = asyncio.get_running_loop()
-            loop.add_signal_handler(
-                sig,
-                lambda s=sig: asyncio.create_task(self.handle_shutdown(s))
-            )
-
         retries = 0
         while retries < self.max_init_retries:
             try:
@@ -183,32 +175,30 @@ class MetricsConsumer:
                     auto_offset_reset='latest',
                     enable_auto_commit=True,
                     auto_commit_interval_ms=1000,
-                    fetch_max_wait_ms=500,
-                    fetch_max_bytes=52428800,  # 50MB max fetch
-                    check_crcs=False,
-                    session_timeout_ms=30000,
-                    heartbeat_interval_ms=10000,
-                    api_version='auto'  # Let Kafka auto-detect API version
+                    connections_max_idle_ms=540000,  # 9 minutes
+                    request_timeout_ms=30000,        # 30 seconds
+                    retry_backoff_ms=RETRY_BACKOFF_MS,
+                    reconnect_backoff_max_ms=10000,  # 10 seconds max backoff
+                    reconnect_backoff_ms=50,         # 50ms initial backoff
+                    connection_timeout=CONNECTION_TIMEOUT_MS,
+                    max_retries=MAX_RETRIES,
+                    metadata_max_age_ms=300000,      # 5 minutes
+                    api_version='auto'
                 )
 
                 self.logger.info("Starting consumer...")
                 await self.consumer.start()
-                self.logger.info("Consumer started, waiting for partition assignment...")
                 
-                # Wait for partition assignment with timeout
-                partition_timeout = 30
-                partition_start = time.time()
-                while time.time() - partition_start < partition_timeout:
+                # Wait for partition assignment with improved timeout handling
+                assignment_start = time.time()
+                while time.time() - assignment_start < 30:  # 30 second timeout
                     partitions = self.consumer.assignment()
                     if partitions:
                         self.logger.info(f"Consumer assigned partitions: {partitions}")
-                        self.logger.info("Consumer initialized successfully")
-                        print("Consumer initialized successfully")
-                        sys.stdout.flush()
                         return True
                     await asyncio.sleep(1)
                 
-                raise RuntimeError("No partitions assigned after timeout")
+                raise RuntimeError("No partitions assigned within timeout period")
                 
             except Exception as e:
                 self.logger.error(f"Error during consumer initialization: {str(e)}", exc_info=True)
@@ -216,14 +206,14 @@ class MetricsConsumer:
                     await self.consumer.stop()
                 retries += 1
                 if retries < self.max_init_retries:
-                    delay = self.init_retry_delay * (2 ** retries)  # Exponential backoff
+                    delay = self.init_retry_delay * (2 ** retries)
                     self.logger.info(f"Retrying in {delay} seconds...")
                     await asyncio.sleep(delay)
                 else:
-                    error_msg = f"Failed to initialize consumer after {self.max_init_retries} attempts"
-                    self.logger.error(error_msg)
-                    print(error_msg, file=sys.stderr)
-                    sys.exit(1)
+                    self.logger.error(f"Failed to initialize consumer after {self.max_init_retries} attempts")
+                    raise
+
+        return False
 
     async def _on_partitions_assigned(self, assigned):
         """Callback when partitions are assigned"""
