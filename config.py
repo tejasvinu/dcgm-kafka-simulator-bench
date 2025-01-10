@@ -27,7 +27,7 @@ if not KAFKA_BOOTSTRAP_SERVERS:
 logging.info(f"Using Kafka brokers: {KAFKA_BOOTSTRAP_SERVERS}")
 
 # Topic configuration
-KAFKA_TOPIC = 'dcgm-metrics-test'
+KAFKA_TOPIC = 'dcgm-metrics-test-optimized'
 NUM_SERVERS = 32
 GPUS_PER_SERVER = 4
 METRICS_INTERVAL = 1
