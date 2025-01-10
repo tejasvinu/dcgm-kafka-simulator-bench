@@ -193,9 +193,46 @@ class BenchmarkRunner:
         consumer_procs = []
         server_proc = None
         try:
-            # Update config
+            # Read existing config
+            with open("config.py", "r") as f:
+                current_config = f.read()
+
+            # Parse existing KAFKA_CONNECTION_CONFIG
+            import re
+            kafka_config_match = re.search(r'KAFKA_CONNECTION_CONFIG = {.*?}', current_config, re.DOTALL)
+            kafka_connection_config = kafka_config_match.group(0) if kafka_config_match else ''
+
+            # Update config while preserving connection settings
             with open("config.py", "w") as f:
-                f.write(f"""KAFKA_BOOTSTRAP_SERVERS = {KAFKA_BOOTSTRAP_SERVERS}
+                f.write(f"""import socket
+import logging
+from typing import List
+
+def verify_kafka_brokers(host: str, ports: List[int], timeout: int = 5) -> List[str]:
+    \"\"\"Verify Kafka broker connectivity and return list of available brokers\"\"\"
+    available_brokers = []
+    for port in ports:
+        try:
+            sock = socket.create_connection((host, port), timeout=timeout)
+            sock.close()
+            available_brokers.append(f"{{host}}:{{port}}")
+            logging.info(f"Successfully connected to broker at {{host}}:{{port}}")
+        except (socket.timeout, socket.error) as e:
+            logging.warning(f"Could not connect to broker at {{host}}:{{port}}: {{e}}")
+    return available_brokers
+
+# Kafka broker configuration
+KAFKA_HOST = '10.180.8.24'
+KAFKA_PORTS = [9092, 9093, 9094, 9095, 9096]
+
+# Verify and get available brokers
+KAFKA_BOOTSTRAP_SERVERS = verify_kafka_brokers(KAFKA_HOST, KAFKA_PORTS)
+if not KAFKA_BOOTSTRAP_SERVERS:
+    raise RuntimeError("No Kafka brokers available")
+
+logging.info(f"Using Kafka brokers: {{KAFKA_BOOTSTRAP_SERVERS}}")
+
+# Topic configuration
 KAFKA_TOPIC = '{KAFKA_TOPIC}'
 NUM_SERVERS = {num_servers}
 GPUS_PER_SERVER = 4
@@ -208,7 +245,15 @@ STATS_INTERVAL = 5
 
 # Producer configuration
 PRODUCER_COMPRESSION = 'zstd'
-MAX_REQUEST_SIZE = 1048576
+MAX_REQUEST_SIZE = 1048576  # 1MB
+
+# Preserve existing Kafka connection config
+{kafka_connection_config}
+
+# Additional settings for stability
+MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION = 5
+MAX_REQUEST_RETRIES = 5
+METADATA_MAX_RETRIES = 3
 """)
 
             # Start multiple consumer processes
