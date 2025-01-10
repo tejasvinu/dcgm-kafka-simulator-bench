@@ -168,47 +168,33 @@ class MetricsConsumer:
         while retries < self.max_init_retries:
             try:
                 self.logger.info(f"Creating consumer instance (attempt {retries + 1}/{self.max_init_retries})...")
-                
-                # Create consumer with updated configuration
                 self.consumer = AIOKafkaConsumer(
                     KAFKA_TOPIC,
                     bootstrap_servers=self.bootstrap_servers,
                     group_id=CONSUMER_GROUP,
                     client_id=f'dcgm-metrics-consumer-{self.consumer_id}',
                     auto_offset_reset='latest',
-                    enable_auto_commit=True,
-                    **KAFKA_CONNECTION_CONFIG
+                    request_timeout_ms=30000,
+                    api_version='auto'
                 )
 
-                # Start consumer with enhanced error handling
-                try:
-                    self.logger.info("Starting consumer...")
-                    await self.consumer.start()
-                    
-                    # Force metadata update after start
-                    self.logger.info("Forcing metadata update...")
-                    await self.consumer._client.force_metadata_update()
-                    
-                    # Wait for partition assignment
-                    assignment_start = time.time()
-                    assignment_timeout = 30
-                    
-                    while time.time() - assignment_start < assignment_timeout:
-                        partitions = self.consumer.assignment()
-                        if partitions:
-                            self.logger.info(f"Consumer assigned partitions: {partitions}")
-                            print("Consumer initialized successfully")  # Required for benchmark runner
-                            return True
-                        await asyncio.sleep(1)
-                    
-                    raise RuntimeError("No partitions assigned within timeout period")
-                    
-                except Exception as e:
-                    self.logger.error(f"Error during consumer start: {str(e)}")
-                    if self.consumer:
-                        await self.consumer.stop()
-                    raise
-
+                self.logger.info("Starting consumer...")
+                await self.consumer.start()
+                
+                # Wait for partition assignment
+                assignment_start = time.time()
+                assignment_timeout = 30
+                
+                while time.time() - assignment_start < assignment_timeout:
+                    partitions = self.consumer.assignment()
+                    if partitions:
+                        self.logger.info(f"Consumer assigned partitions: {partitions}")
+                        print("Consumer initialized successfully")
+                        return True
+                    await asyncio.sleep(1)
+                
+                raise RuntimeError("No partitions assigned within timeout period")
+                
             except Exception as e:
                 self.logger.error(f"Error during consumer initialization: {str(e)}", exc_info=True)
                 if self.consumer:

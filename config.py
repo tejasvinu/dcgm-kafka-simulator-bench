@@ -24,8 +24,6 @@ KAFKA_BOOTSTRAP_SERVERS = verify_kafka_brokers(KAFKA_HOST, KAFKA_PORTS)
 if not KAFKA_BOOTSTRAP_SERVERS:
     raise RuntimeError("No Kafka brokers available")
 
-logging.info(f"Using Kafka brokers: {KAFKA_BOOTSTRAP_SERVERS}")
-
 # Topic configuration
 KAFKA_TOPIC = 'dcgm-metrics-test-optimized'
 NUM_SERVERS = 32
@@ -41,31 +39,9 @@ STATS_INTERVAL = 5
 PRODUCER_COMPRESSION = 'zstd'
 MAX_REQUEST_SIZE = 1048576  # 1MB
 
-# Kafka client configurations with optimized settings for multiple brokers
+# Kafka client configurations - only essential settings
 KAFKA_CONNECTION_CONFIG = {
-    'metadata_max_age_ms': 10000,          # 10 seconds - more frequent metadata refresh
-    'retry_backoff_ms': 100,               # 100ms between retries
-    'request_timeout_ms': 30000,           # 30 second timeout
-    'session_timeout_ms': 45000,           # 45 second session timeout
-    'heartbeat_interval_ms': 15000,        # 15 second heartbeat
-    'max_poll_interval_ms': 600000,        # 10 minutes
-    'connections_max_idle_ms': 540000,     # 9 minutes
-    'reconnect_backoff_ms': 50,            # 50ms initial backoff
-    'reconnect_backoff_max_ms': 5000,      # 5 seconds max backoff
-    'security_protocol': 'PLAINTEXT',
-    'max_poll_records': 500,               # Max records per poll
-    'fetch_max_wait_ms': 500,              # Max time to wait for data
-    'fetch_max_bytes': 52428800,           # 50MB max fetch size
-    'receive_buffer_bytes': 32768,         # 32KB receive buffer
-    'send_buffer_bytes': 131072,           # 128KB send buffer
-    'enable_auto_commit': True,
-    'auto_commit_interval_ms': 5000,       # 5 second auto commit
-    'check_crcs': False,                   # Disable CRC checks for performance
-    'socket_connection_setup_timeout_ms': 10000,  # 10 second connection timeout
-    'socket_connection_setup_timeout_max_ms': 30000  # 30 second max connection timeout
+    'request_timeout_ms': 30000,
+    'metadata_max_age_ms': 30000,
+    'api_version': 'auto'
 }
-
-# Additional settings for stability
-MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION = 5
-MAX_REQUEST_RETRIES = 5
-METADATA_MAX_RETRIES = 3
