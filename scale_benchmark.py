@@ -4,7 +4,11 @@ import json
 import os
 from datetime import datetime
 from Kafka_bench import KafkaBenchmark
-from config import update_num_servers
+from config import (
+    update_num_servers, 
+    GPUS_PER_SERVER, 
+    METRICS_INTERVAL
+)
 from report_generator import generate_report
 
 # Configure logging
