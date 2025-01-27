@@ -21,11 +21,11 @@ class DCGMServerEmulator:
             uuid = f"GPU-{server_hex}{gpu_hex}{''.join([format(x, '02x') for x in range(14)])}"
             pci_id = f"{server_hex[:2]}:{gpu_hex}:{server_hex[2:]}:0"
             
-            # Create template with placeholders
-            self.metrics_cache[cache_key] = f'''DCGM_FI_DEV_SM_CLOCK{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}"}} {{sm_clock}}
-DCGM_FI_DEV_GPU_TEMP{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}"}} {{gpu_temp}}
-DCGM_FI_DEV_POWER_USAGE{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}"}} {{power}}
-DCGM_FI_DEV_GPU_UTIL{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}"}} {{util}}'''
+            # Escape braces by doubling them
+            self.metrics_cache[cache_key] = f'''DCGM_FI_DEV_SM_CLOCK{{{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}"}}}} {{sm_clock}}
+DCGM_FI_DEV_GPU_TEMP{{{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}"}}}} {{gpu_temp}}
+DCGM_FI_DEV_POWER_USAGE{{{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}"}}}} {{power}}
+DCGM_FI_DEV_GPU_UTIL{{{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}"}}}} {{util}}'''
 
         # Generate random values
         sm_clock = 1200 + (self.server_id + gpu_id) % 300
