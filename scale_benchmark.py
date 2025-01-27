@@ -62,50 +62,60 @@ async def run_scale_benchmark():
             
             update_num_servers(scale)
             
-            # Start servers
+            # Initialize and start producers
+            producers = []
             server_tasks = []
-            for server_id in range(scale):
-                server_tasks.append(asyncio.create_task(run_server(server_id, MetricsProducer())))
-            
-            benchmark = KafkaBenchmark(duration=BENCHMARK_DURATION)
             
             try:
+                # Create and start producers first
+                for server_id in range(scale):
+                    producer = MetricsProducer()
+                    await producer.start()
+                    producers.append(producer)
+                    server_tasks.append(asyncio.create_task(
+                        run_server(server_id, producer),
+                        name=f"server-{server_id}"
+                    ))
+                
+                benchmark = KafkaBenchmark(duration=BENCHMARK_DURATION)
+                
                 # Run consumer + servers
                 await asyncio.gather(
                     benchmark.run_benchmark(),
                     *server_tasks
                 )
+                
                 stats = benchmark.calculate_stats()
                 results[str(scale)] = stats
                 
-                # Verify scale before proceeding
                 if not verify_scale(scale, results):
                     logger.error(f"Scale verification failed for {scale} servers, stopping benchmark")
                     break
                 
-                # Save intermediate results but don't generate report
                 save_intermediate_results(results)
-                
-                logger.info(f"Cooling down for 30 seconds...")
-                await asyncio.sleep(30)
                 
             except Exception as e:
                 logger.error(f"Error at scale {scale}: {e}")
                 break
-            
-            # Cancel server tasks after each scale
-            for task in server_tasks:
-                task.cancel()
+            finally:
+                # Clean up producers and tasks
+                for task in server_tasks:
+                    task.cancel()
+                    
+                # Wait for tasks to be cancelled
+                if server_tasks:
+                    await asyncio.gather(*server_tasks, return_exceptions=True)
                 
-        # Generate final report only once after all scales are complete
-        if results:
-            final_report_created = True
-            end_time = datetime.now()
-            duration = end_time - start_time
-            
-            report_path = generate_final_report(results, start_time, end_time, duration)
-            logger.info(f"Complete benchmark report generated: {report_path}")
-            
+                # Close all producers
+                for producer in producers:
+                    try:
+                        await producer.close()
+                    except Exception as e:
+                        logger.error(f"Error closing producer: {e}")
+                
+                logger.info(f"Cooling down for 30 seconds...")
+                await asyncio.sleep(30)
+    
     except Exception as e:
         logger.error(f"Benchmark suite error: {e}")
     finally:
