@@ -2,6 +2,7 @@ import asyncio
 import logging
 import json
 import os
+import time
 from datetime import datetime
 from Kafka_bench import KafkaBenchmark
 from producer import MetricsProducer
@@ -42,6 +43,27 @@ def verify_scale(scale, results):
         return False
     return True
 
+async def monitor_progress(scale, benchmark, expected_msgs):
+    """Monitor benchmark progress"""
+    start_time = time.time()
+    last_count = 0
+    
+    while not benchmark.should_stop:
+        await asyncio.sleep(10)  # Check every 10 seconds
+        current_time = time.time()
+        elapsed = current_time - start_time
+        
+        current_count = benchmark.messages_received
+        current_rate = (current_count - last_count) / 10.0  # messages per second
+        progress = (current_count / expected_msgs) * 100
+        
+        logger.info(f"Scale {scale} Progress: {progress:.1f}% - "
+                   f"Rate: {current_rate:.1f} msgs/sec - "
+                   f"Received: {current_count}/{expected_msgs:.0f} - "
+                   f"Time: {elapsed:.0f}s/{BENCHMARK_DURATION}s")
+        
+        last_count = current_count
+
 async def run_scale_benchmark():
     results = {}
     final_report_created = False
@@ -61,13 +83,12 @@ async def run_scale_benchmark():
             logger.info(f"{'='*50}")
             
             update_num_servers(scale)
-            
-            # Initialize and start producers
             producers = []
             server_tasks = []
+            benchmark = None
             
             try:
-                # Create and start producers first
+                # Start producers first
                 for server_id in range(scale):
                     producer = MetricsProducer()
                     await producer.start()
@@ -77,13 +98,22 @@ async def run_scale_benchmark():
                         name=f"server-{server_id}"
                     ))
                 
+                # Start benchmark and monitoring
                 benchmark = KafkaBenchmark(duration=BENCHMARK_DURATION)
+                expected_msgs = scale * GPUS_PER_SERVER * (BENCHMARK_DURATION / METRICS_INTERVAL)
                 
-                # Run consumer + servers
-                await asyncio.gather(
-                    benchmark.run_benchmark(),
-                    *server_tasks
+                benchmark_task = asyncio.create_task(benchmark.run_benchmark())
+                monitor_task = asyncio.create_task(
+                    monitor_progress(scale, benchmark, expected_msgs)
                 )
+                
+                # Wait for benchmark to complete with timeout
+                try:
+                    await asyncio.wait_for(benchmark_task, timeout=BENCHMARK_DURATION + 30)
+                except asyncio.TimeoutError:
+                    logger.warning("Benchmark timed out, forcing shutdown")
+                finally:
+                    monitor_task.cancel()
                 
                 stats = benchmark.calculate_stats()
                 results[str(scale)] = stats
@@ -98,22 +128,38 @@ async def run_scale_benchmark():
                 logger.error(f"Error at scale {scale}: {e}")
                 break
             finally:
-                # Clean up producers and tasks
-                for task in server_tasks:
-                    task.cancel()
-                    
-                # Wait for tasks to be cancelled
-                if server_tasks:
-                    await asyncio.gather(*server_tasks, return_exceptions=True)
+                # Clean up tasks and resources
+                logger.info("Cleaning up resources...")
                 
-                # Close all producers
+                # Cancel server tasks
+                for task in server_tasks:
+                    if not task.done():
+                        task.cancel()
+                
+                # Wait for tasks to finish with timeout
+                if server_tasks:
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(*server_tasks, return_exceptions=True),
+                            timeout=5
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("Timeout waiting for server tasks to cancel")
+                
+                # Stop benchmark if running
+                if benchmark:
+                    await benchmark.shutdown()
+                
+                # Close producers
                 for producer in producers:
                     try:
-                        await producer.close()
+                        await asyncio.wait_for(producer.close(), timeout=5)
+                    except asyncio.TimeoutError:
+                        logger.warning("Timeout closing producer")
                     except Exception as e:
                         logger.error(f"Error closing producer: {e}")
                 
-                logger.info(f"Cooling down for 30 seconds...")
+                logger.info("Cooling down for 30 seconds...")
                 await asyncio.sleep(30)
     
     except Exception as e:

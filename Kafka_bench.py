@@ -35,39 +35,39 @@ class KafkaBenchmark:
             self.consumer_stats['latency'] = self.consumer_stats['latency'][-10000:]
 
     async def consumer_task(self):
-        """Consume metrics and measure performance"""
-        consumer = AIOKafkaConsumer(
-            KAFKA_TOPIC,
-            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-            group_id='benchmark_group',
-            enable_auto_commit=True,
-            auto_commit_interval_ms=1000,
-            session_timeout_ms=30000,
-            heartbeat_interval_ms=10000
-        )
-        
+        consumer = None
         try:
+            consumer = AIOKafkaConsumer(
+                KAFKA_TOPIC,
+                bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                group_id='benchmark_group',
+                enable_auto_commit=True,
+                auto_commit_interval_ms=1000,
+                session_timeout_ms=30000,
+                heartbeat_interval_ms=10000
+            )
+            
             await consumer.start()
             end_time = self.start_time + self.duration
             
             while time.time() < end_time and not self.should_stop:
                 try:
-                    # Set timeout to ensure we don't block indefinitely
-                    start_time = time.time()
                     msg = await asyncio.wait_for(
                         consumer.getone(),
                         timeout=1.0
                     )
-                    end_time_msg = time.time()
-                    self.consumer_stats['latency'].append(end_time_msg - start_time)
                     self.messages_received += 1
                 except asyncio.TimeoutError:
+                    if time.time() >= end_time:
+                        break
                     continue
                 except Exception as e:
                     logger.error(f"Consumer error: {e}")
-                    
+                    if self.should_stop:
+                        break
         finally:
-            await consumer.stop()
+            if consumer:
+                await consumer.stop()
 
     async def shutdown(self):
         """Gracefully shutdown the benchmark"""

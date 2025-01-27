@@ -2,6 +2,8 @@ from aiokafka import AIOKafkaProducer
 import asyncio
 import logging
 from config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC
+from config import (PRODUCER_BATCH_SIZE, PRODUCER_LINGER_MS, 
+                   PRODUCER_COMPRESSION)
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +14,9 @@ class MetricsProducer:
         self.producer_config = {
             'bootstrap_servers': KAFKA_BOOTSTRAP_SERVERS,
             'acks': 1,  # Changed from 'all' to 1 for better throughput
-            'max_batch_size': 32768,  # Replace batch_size
-            'linger_ms': 50,      # Increased linger time
+            'compression_type': PRODUCER_COMPRESSION,
+            'max_batch_size': PRODUCER_BATCH_SIZE,
+            'linger_ms': PRODUCER_LINGER_MS,
             'max_request_size': 4194304,
             'request_timeout_ms': 30000
         }
