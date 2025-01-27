@@ -1,3 +1,4 @@
+import time
 # Kafka Configuration
 KAFKA_HOST = '10.180.8.24'
 KAFKA_PORTS = [9092, 9093, 9094, 9095, 9096]
