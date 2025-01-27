@@ -13,10 +13,9 @@ class MetricsProducer:
             'bootstrap_servers': KAFKA_BOOTSTRAP_SERVERS,
             'acks': 1,  # Changed from 'all' to 1 for better throughput
             'compression_type': 'gzip',
-            'batch_size': 32768,  # Increased batch size
+            'max_batch_size': 32768,  # Replace batch_size
             'linger_ms': 50,      # Increased linger time
             'max_request_size': 4194304,
-            'buffer_memory': 67108864,  # 64MB buffer
             'request_timeout_ms': 30000
         }
 
