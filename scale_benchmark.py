@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime
 from Kafka_bench import KafkaBenchmark
+from producer import MetricsProducer
 from config import (
     update_num_servers, 
     GPUS_PER_SERVER, 
