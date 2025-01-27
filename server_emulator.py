@@ -7,119 +7,35 @@ from config import NUM_SERVERS, GPUS_PER_SERVER, METRICS_INTERVAL
 
 class DCGMServerEmulator:
     def __init__(self, server_id):
-        self.server_id = f"server_{server_id}"
+        self.server_id = server_id  # Remove f-string to keep numeric ID
         self.num_gpus = GPUS_PER_SERVER
 
     def generate_metric(self, gpu_id):
-        return r""""# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz)
+        # Generate unique metrics for each server/GPU combination
+        server_hex = f"{self.server_id:04x}"
+        gpu_hex = f"{gpu_id:02x}"
+        uuid = f"GPU-{server_hex}{gpu_hex}{''.join([format(x, '02x') for x in range(14)])}"
+        pci_id = f"{server_hex[:2]}:{gpu_hex}:{server_hex[2:]}:0"
+        
+        # Generate random but realistic values
+        sm_clock = 1200 + (self.server_id + gpu_id) % 300  # Range: 1200-1500 MHz
+        mem_clock = 850 + (self.server_id + gpu_id) % 100  # Range: 850-950 MHz
+        gpu_temp = 45 + (self.server_id + gpu_id) % 30     # Range: 45-75°C
+        power_usage = 300 + (self.server_id + gpu_id) % 100  # Range: 300-400W
+        gpu_util = (self.server_id + gpu_id) % 100         # Range: 0-100%
+        
+        return f'''# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz)
 # TYPE DCGM_FI_DEV_SM_CLOCK gauge
-DCGM_FI_DEV_SM_CLOCK{node="0",gpu="0",UUID="GPU-65b748f6d35fc670c5ad13b8d9dba852",pci_bus_id="1F:CE:62.0",device="nvidia0",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 1350
-# HELP DCGM_FI_DEV_MEM_CLOCK Memory clock frequency (in MHz)
-# TYPE DCGM_FI_DEV_MEM_CLOCK gauge
-DCGM_FI_DEV_MEM_CLOCK{node="0",gpu="0",UUID="GPU-65b748f6d35fc670c5ad13b8d9dba852",pci_bus_id="1F:CE:62.0",device="nvidia0",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 877
-# HELP DCGM_FI_DEV_MEMORY_TEMP Memory temperature (in C)
-# TYPE DCGM_FI_DEV_MEMORY_TEMP gauge
-DCGM_FI_DEV_MEMORY_TEMP{node="0",gpu="0",UUID="GPU-65b748f6d35fc670c5ad13b8d9dba852",pci_bus_id="1F:CE:62.0",device="nvidia0",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 74
+DCGM_FI_DEV_SM_CLOCK{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}",DCGM_FI_DRIVER_VERSION="450.51.06"}} {sm_clock}
 # HELP DCGM_FI_DEV_GPU_TEMP GPU temperature (in C)
 # TYPE DCGM_FI_DEV_GPU_TEMP gauge
-DCGM_FI_DEV_GPU_TEMP{node="0",gpu="0",UUID="GPU-65b748f6d35fc670c5ad13b8d9dba852",pci_bus_id="1F:CE:62.0",device="nvidia0",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 74
+DCGM_FI_DEV_GPU_TEMP{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}",DCGM_FI_DRIVER_VERSION="450.51.06"}} {gpu_temp}
 # HELP DCGM_FI_DEV_POWER_USAGE Power draw (in W)
 # TYPE DCGM_FI_DEV_POWER_USAGE gauge
-DCGM_FI_DEV_POWER_USAGE{node="0",gpu="0",UUID="GPU-65b748f6d35fc670c5ad13b8d9dba852",pci_bus_id="1F:CE:62.0",device="nvidia0",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 340.3
+DCGM_FI_DEV_POWER_USAGE{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}",DCGM_FI_DRIVER_VERSION="450.51.06"}} {power_usage}
 # HELP DCGM_FI_DEV_GPU_UTIL GPU utilization (in %)
 # TYPE DCGM_FI_DEV_GPU_UTIL gauge
-DCGM_FI_DEV_GPU_UTIL{node="0",gpu="0",UUID="GPU-65b748f6d35fc670c5ad13b8d9dba852",pci_bus_id="1F:CE:62.0",device="nvidia0",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 80
-# HELP DCGM_FI_DEV_MEM_COPY_UTIL Memory utilization (in %)
-# TYPE DCGM_FI_DEV_MEM_COPY_UTIL gauge
-DCGM_FI_DEV_MEM_COPY_UTIL{node="0",gpu="0",UUID="GPU-65b748f6d35fc670c5ad13b8d9dba852",pci_bus_id="1F:CE:62.0",device="nvidia0",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 72
-# HELP DCGM_FI_DEV_FB_FREE Frame buffer memory free (in MB)
-# TYPE DCGM_FI_DEV_FB_FREE gauge
-DCGM_FI_DEV_FB_FREE{node="0",gpu="0",UUID="GPU-65b748f6d35fc670c5ad13b8d9dba852",pci_bus_id="1F:CE:62.0",device="nvidia0",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 4587.52
-# HELP DCGM_FI_DEV_FB_USED Frame buffer memory used (in MB)
-# TYPE DCGM_FI_DEV_FB_USED gauge
-DCGM_FI_DEV_FB_USED{node="0",gpu="0",UUID="GPU-65b748f6d35fc670c5ad13b8d9dba852",pci_bus_id="1F:CE:62.0",device="nvidia0",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 11796.48
-# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz)
-# TYPE DCGM_FI_DEV_SM_CLOCK gauge
-DCGM_FI_DEV_SM_CLOCK{node="0",gpu="1",UUID="GPU-f9a4ee7519dd133c5f270e783acfa8f1",pci_bus_id="3D:26:BB.0",device="nvidia1",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 1279
-# HELP DCGM_FI_DEV_MEM_CLOCK Memory clock frequency (in MHz)
-# TYPE DCGM_FI_DEV_MEM_CLOCK gauge
-DCGM_FI_DEV_MEM_CLOCK{node="0",gpu="1",UUID="GPU-f9a4ee7519dd133c5f270e783acfa8f1",pci_bus_id="3D:26:BB.0",device="nvidia1",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 877
-# HELP DCGM_FI_DEV_MEMORY_TEMP Memory temperature (in C)
-# TYPE DCGM_FI_DEV_MEMORY_TEMP gauge
-DCGM_FI_DEV_MEMORY_TEMP{node="0",gpu="1",UUID="GPU-f9a4ee7519dd133c5f270e783acfa8f1",pci_bus_id="3D:26:BB.0",device="nvidia1",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 48
-# HELP DCGM_FI_DEV_GPU_TEMP GPU temperature (in C)
-# TYPE DCGM_FI_DEV_GPU_TEMP gauge
-DCGM_FI_DEV_GPU_TEMP{node="0",gpu="1",UUID="GPU-f9a4ee7519dd133c5f270e783acfa8f1",pci_bus_id="3D:26:BB.0",device="nvidia1",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 48
-# HELP DCGM_FI_DEV_POWER_USAGE Power draw (in W)
-# TYPE DCGM_FI_DEV_POWER_USAGE gauge
-DCGM_FI_DEV_POWER_USAGE{node="0",gpu="1",UUID="GPU-f9a4ee7519dd133c5f270e783acfa8f1",pci_bus_id="3D:26:BB.0",device="nvidia1",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 316.58
-# HELP DCGM_FI_DEV_GPU_UTIL GPU utilization (in %)
-# TYPE DCGM_FI_DEV_GPU_UTIL gauge
-DCGM_FI_DEV_GPU_UTIL{node="0",gpu="1",UUID="GPU-f9a4ee7519dd133c5f270e783acfa8f1",pci_bus_id="3D:26:BB.0",device="nvidia1",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 33
-# HELP DCGM_FI_DEV_MEM_COPY_UTIL Memory utilization (in %)
-# TYPE DCGM_FI_DEV_MEM_COPY_UTIL gauge
-DCGM_FI_DEV_MEM_COPY_UTIL{node="0",gpu="1",UUID="GPU-f9a4ee7519dd133c5f270e783acfa8f1",pci_bus_id="3D:26:BB.0",device="nvidia1",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 29
-# HELP DCGM_FI_DEV_FB_FREE Frame buffer memory free (in MB)
-# TYPE DCGM_FI_DEV_FB_FREE gauge
-DCGM_FI_DEV_FB_FREE{node="0",gpu="1",UUID="GPU-f9a4ee7519dd133c5f270e783acfa8f1",pci_bus_id="3D:26:BB.0",device="nvidia1",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 11632.64
-# HELP DCGM_FI_DEV_FB_USED Frame buffer memory used (in MB)
-# TYPE DCGM_FI_DEV_FB_USED gauge
-DCGM_FI_DEV_FB_USED{node="0",gpu="1",UUID="GPU-f9a4ee7519dd133c5f270e783acfa8f1",pci_bus_id="3D:26:BB.0",device="nvidia1",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 4751.36
-# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz)
-# TYPE DCGM_FI_DEV_SM_CLOCK gauge
-DCGM_FI_DEV_SM_CLOCK{node="0",gpu="2",UUID="GPU-d795a930a31b53c90b362838be3d7d6f",pci_bus_id="24:35:0B.0",device="nvidia2",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 1314
-# HELP DCGM_FI_DEV_MEM_CLOCK Memory clock frequency (in MHz)
-# TYPE DCGM_FI_DEV_MEM_CLOCK gauge
-DCGM_FI_DEV_MEM_CLOCK{node="0",gpu="2",UUID="GPU-d795a930a31b53c90b362838be3d7d6f",pci_bus_id="24:35:0B.0",device="nvidia2",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 877
-# HELP DCGM_FI_DEV_MEMORY_TEMP Memory temperature (in C)
-# TYPE DCGM_FI_DEV_MEMORY_TEMP gauge
-DCGM_FI_DEV_MEMORY_TEMP{node="0",gpu="2",UUID="GPU-d795a930a31b53c90b362838be3d7d6f",pci_bus_id="24:35:0B.0",device="nvidia2",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 60
-# HELP DCGM_FI_DEV_GPU_TEMP GPU temperature (in C)
-# TYPE DCGM_FI_DEV_GPU_TEMP gauge
-DCGM_FI_DEV_GPU_TEMP{node="0",gpu="2",UUID="GPU-d795a930a31b53c90b362838be3d7d6f",pci_bus_id="24:35:0B.0",device="nvidia2",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 60
-# HELP DCGM_FI_DEV_POWER_USAGE Power draw (in W)
-# TYPE DCGM_FI_DEV_POWER_USAGE gauge
-DCGM_FI_DEV_POWER_USAGE{node="0",gpu="2",UUID="GPU-d795a930a31b53c90b362838be3d7d6f",pci_bus_id="24:35:0B.0",device="nvidia2",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 328.03
-# HELP DCGM_FI_DEV_GPU_UTIL GPU utilization (in %)
-# TYPE DCGM_FI_DEV_GPU_UTIL gauge
-DCGM_FI_DEV_GPU_UTIL{node="0",gpu="2",UUID="GPU-d795a930a31b53c90b362838be3d7d6f",pci_bus_id="24:35:0B.0",device="nvidia2",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 56
-# HELP DCGM_FI_DEV_MEM_COPY_UTIL Memory utilization (in %)
-# TYPE DCGM_FI_DEV_MEM_COPY_UTIL gauge
-DCGM_FI_DEV_MEM_COPY_UTIL{node="0",gpu="2",UUID="GPU-d795a930a31b53c90b362838be3d7d6f",pci_bus_id="24:35:0B.0",device="nvidia2",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 50
-# HELP DCGM_FI_DEV_FB_FREE Frame buffer memory free (in MB)
-# TYPE DCGM_FI_DEV_FB_FREE gauge
-DCGM_FI_DEV_FB_FREE{node="0",gpu="2",UUID="GPU-d795a930a31b53c90b362838be3d7d6f",pci_bus_id="24:35:0B.0",device="nvidia2",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 8192.0
-# HELP DCGM_FI_DEV_FB_USED Frame buffer memory used (in MB)
-# TYPE DCGM_FI_DEV_FB_USED gauge
-DCGM_FI_DEV_FB_USED{node="0",gpu="2",UUID="GPU-d795a930a31b53c90b362838be3d7d6f",pci_bus_id="24:35:0B.0",device="nvidia2",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 8192.0
-# HELP DCGM_FI_DEV_SM_CLOCK SM clock frequency (in MHz)
-# TYPE DCGM_FI_DEV_SM_CLOCK gauge
-DCGM_FI_DEV_SM_CLOCK{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b",pci_bus_id="DE:E9:DA.0",device="nvidia3",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 1319
-# HELP DCGM_FI_DEV_MEM_CLOCK Memory clock frequency (in MHz)
-# TYPE DCGM_FI_DEV_MEM_CLOCK gauge
-DCGM_FI_DEV_MEM_CLOCK{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b",pci_bus_id="DE:E9:DA.0",device="nvidia3",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 877
-# HELP DCGM_FI_DEV_MEMORY_TEMP Memory temperature (in C)
-# TYPE DCGM_FI_DEV_MEMORY_TEMP gauge
-DCGM_FI_DEV_MEMORY_TEMP{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b",pci_bus_id="DE:E9:DA.0",device="nvidia3",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 62
-# HELP DCGM_FI_DEV_GPU_TEMP GPU temperature (in C)
-# TYPE DCGM_FI_DEV_GPU_TEMP gauge
-DCGM_FI_DEV_GPU_TEMP{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b",pci_bus_id="DE:E9:DA.0",device="nvidia3",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 62
-# HELP DCGM_FI_DEV_POWER_USAGE Power draw (in W)
-# TYPE DCGM_FI_DEV_POWER_USAGE gauge
-DCGM_FI_DEV_POWER_USAGE{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b",pci_bus_id="DE:E9:DA.0",device="nvidia3",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 329.74
-# HELP DCGM_FI_DEV_GPU_UTIL GPU utilization (in %)
-# TYPE DCGM_FI_DEV_GPU_UTIL gauge
-DCGM_FI_DEV_GPU_UTIL{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b",pci_bus_id="DE:E9:DA.0",device="nvidia3",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 59
-# HELP DCGM_FI_DEV_MEM_COPY_UTIL Memory utilization (in %)
-# TYPE DCGM_FI_DEV_MEM_COPY_UTIL gauge
-DCGM_FI_DEV_MEM_COPY_UTIL{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b",pci_bus_id="DE:E9:DA.0",device="nvidia3",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 53
-# HELP DCGM_FI_DEV_FB_FREE Frame buffer memory free (in MB)
-# TYPE DCGM_FI_DEV_FB_FREE gauge
-DCGM_FI_DEV_FB_FREE{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b",pci_bus_id="DE:E9:DA.0",device="nvidia3",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 7700.48
-# HELP DCGM_FI_DEV_FB_USED Frame buffer memory used (in MB)
-# TYPE DCGM_FI_DEV_FB_USED gauge
-DCGM_FI_DEV_FB_USED{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b",pci_bus_id="DE:E9:DA.0",device="nvidia3",modelName="Tesla V100-SXM2-16GB",Hostname="node00",DCGM_FI_DRIVER_VERSION="450.51.06"} 8683.52
-"""
+DCGM_FI_DEV_GPU_UTIL{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="node{self.server_id:04d}",DCGM_FI_DRIVER_VERSION="450.51.06"}} {gpu_util}'''
 
 async def run_server(server_id, producer):
     emulator = DCGMServerEmulator(server_id)
