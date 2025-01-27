@@ -10,6 +10,7 @@ from config import (
     METRICS_INTERVAL
 )
 from report_generator import generate_report
+from server_emulator import run_server
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -59,10 +60,20 @@ async def run_scale_benchmark():
             logger.info(f"{'='*50}")
             
             update_num_servers(scale)
+            
+            # Start servers
+            server_tasks = []
+            for server_id in range(scale):
+                server_tasks.append(asyncio.create_task(run_server(server_id, MetricsProducer())))
+            
             benchmark = KafkaBenchmark(duration=BENCHMARK_DURATION)
             
             try:
-                await benchmark.run_benchmark()
+                # Run consumer + servers
+                await asyncio.gather(
+                    benchmark.run_benchmark(),
+                    *server_tasks
+                )
                 stats = benchmark.calculate_stats()
                 results[str(scale)] = stats
                 
@@ -80,6 +91,10 @@ async def run_scale_benchmark():
             except Exception as e:
                 logger.error(f"Error at scale {scale}: {e}")
                 break
+            
+            # Cancel server tasks after each scale
+            for task in server_tasks:
+                task.cancel()
                 
         # Generate final report only once after all scales are complete
         if results:
