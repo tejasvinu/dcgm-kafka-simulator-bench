@@ -32,29 +32,68 @@ class KafkaBenchmark:
         self.messages_received = 0
         self.start_time = 0
         self.should_stop = False
+        self.batch_size = 100  # Batch size for statistics collection
+        self.stats_flush_interval = 10  # Flush stats every 10 seconds
 
     async def producer_task(self, server_id: int):
-        """Simulate server sending metrics"""
+        """Simulate server sending metrics with batching"""
         emulator = DCGMServerEmulator(server_id)
         end_time = self.start_time + self.duration
+        metrics_batch = []
+        last_flush = time.time()
         
         while time.time() < end_time and not self.should_stop:
+            batch_start_time = time.time()
+            
             for gpu_id in range(emulator.num_gpus):
                 if time.time() >= end_time or self.should_stop:
                     break
-                    
-                start_time = time.time()
-                metric = emulator.generate_metric(gpu_id)
                 
+                metric = emulator.generate_metric(gpu_id)
+                metrics_batch.append(metric)
+                
+                if len(metrics_batch) >= self.batch_size:
+                    try:
+                        await self.producer.send_metric('\n'.join(metrics_batch))
+                        batch_end_time = time.time()
+                        # Record average latency for the batch
+                        avg_latency = (batch_end_time - batch_start_time) / len(metrics_batch)
+                        self.producer_stats['latency'].append(avg_latency)
+                        self.messages_sent += len(metrics_batch)
+                        metrics_batch = []
+                        batch_start_time = time.time()
+                    except Exception as e:
+                        logger.error(f"Producer error: {e}")
+                        metrics_batch = []
+            
+            # Send any remaining metrics in the batch
+            if metrics_batch:
                 try:
-                    await self.producer.send_metric(metric)
-                    end_time_metric = time.time()
-                    self.producer_stats['latency'].append(end_time_metric - start_time)
-                    self.messages_sent += 1
+                    await self.producer.send_metric('\n'.join(metrics_batch))
+                    batch_end_time = time.time()
+                    avg_latency = (batch_end_time - batch_start_time) / len(metrics_batch)
+                    self.producer_stats['latency'].append(avg_latency)
+                    self.messages_sent += len(metrics_batch)
+                    metrics_batch = []
                 except Exception as e:
                     logger.error(f"Producer error: {e}")
-                
+                    metrics_batch = []
+            
+            # Flush stats periodically to prevent memory growth
+            current_time = time.time()
+            if current_time - last_flush >= self.stats_flush_interval:
+                self._flush_stats()
+                last_flush = current_time
+            
             await asyncio.sleep(METRICS_INTERVAL)
+
+    def _flush_stats(self):
+        """Flush statistics to prevent memory growth"""
+        if len(self.producer_stats['latency']) > 10000:
+            # Keep only the most recent 10000 latency measurements
+            self.producer_stats['latency'] = self.producer_stats['latency'][-10000:]
+        if len(self.consumer_stats['latency']) > 10000:
+            self.consumer_stats['latency'] = self.consumer_stats['latency'][-10000:]
 
     async def consumer_task(self):
         """Consume metrics and measure performance"""
