@@ -12,7 +12,6 @@ class MetricsProducer:
         self.producer_config = {
             'bootstrap_servers': KAFKA_BOOTSTRAP_SERVERS,
             'acks': 1,  # Changed from 'all' to 1 for better throughput
-            'compression_type': 'gzip',
             'max_batch_size': 32768,  # Replace batch_size
             'linger_ms': 50,      # Increased linger time
             'max_request_size': 4194304,
