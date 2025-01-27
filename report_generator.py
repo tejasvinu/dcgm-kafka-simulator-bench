@@ -4,59 +4,59 @@ import json
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-HTML_TEMPLATE = """
+HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
 <head>
     <title>Kafka Benchmark Results - {timestamp}</title>
     <style>
-        body {
+        body {{ 
             font-family: Arial, sans-serif;
             margin: 40px;
             background-color: #f5f5f5;
-        }
-        .container {
+        }}
+        .container {{
             max-width: 1200px;
             margin: 0 auto;
             background-color: white;
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
-        h1 {
+        }}
+        h1 {{
             color: #333;
             border-bottom: 2px solid #eee;
             padding-bottom: 10px;
-        }
-        .summary {
+        }}
+        .summary {{
             margin: 20px 0;
             padding: 15px;
             background-color: #f8f9fa;
             border-radius: 4px;
-        }
-        .chart {
+        }}
+        .chart {{
             margin: 20px 0;
             padding: 15px;
             background-color: white;
             border: 1px solid #ddd;
             border-radius: 4px;
-        }
-        table {
+        }}
+        table {{
             width: 100%;
             border-collapse: collapse;
             margin: 20px 0;
-        }
-        th, td {
+        }}
+        th, td {{
             padding: 12px;
             text-align: left;
             border-bottom: 1px solid #ddd;
-        }
-        th {
+        }}
+        th {{
             background-color: #f4f4f4;
-        }
-        tr:hover {
+        }}
+        tr:hover {{
             background-color: #f5f5f5;
-        }
+        }}
     </style>
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 </head>
@@ -76,7 +76,7 @@ HTML_TEMPLATE = """
     </div>
 </body>
 </html>
-"""
+'''
 
 def generate_charts(results):
     """Generate Plotly charts for the results"""
