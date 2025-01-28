@@ -35,6 +35,7 @@ class KafkaBenchmark:
             self.consumer_stats['latency'] = self.consumer_stats['latency'][-10000:]
 
     async def consumer_task(self):
+        """Consume metrics and measure performance"""
         consumer = None
         try:
             consumer = AIOKafkaConsumer(
@@ -48,18 +49,26 @@ class KafkaBenchmark:
             )
             
             await consumer.start()
-            end_time = self.start_time + self.duration
+            start_time = time.time()
+            last_progress = time.time()
             
-            while time.time() < end_time and not self.should_stop:
+            while time.time() - start_time < self.duration and not self.should_stop:
                 try:
                     msg = await asyncio.wait_for(
                         consumer.getone(),
                         timeout=1.0
                     )
                     self.messages_received += 1
+                    
+                    # Log progress every 60 seconds
+                    if time.time() - last_progress >= 60:
+                        elapsed = time.time() - start_time
+                        rate = self.messages_received / elapsed
+                        logger.info(f"Consumer progress: {self.messages_received} messages, "
+                                  f"Rate: {rate:.1f} msgs/sec")
+                        last_progress = time.time()
+                        
                 except asyncio.TimeoutError:
-                    if time.time() >= end_time:
-                        break
                     continue
                 except Exception as e:
                     logger.error(f"Consumer error: {e}")

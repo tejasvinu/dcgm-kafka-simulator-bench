@@ -47,22 +47,26 @@ async def monitor_progress(scale, benchmark, expected_msgs):
     """Monitor benchmark progress"""
     start_time = time.time()
     last_count = 0
+    last_report_time = start_time
+    total_duration = BENCHMARK_DURATION
     
-    while not benchmark.should_stop:
-        await asyncio.sleep(10)  # Check every 10 seconds
+    while time.time() - start_time < total_duration and not benchmark.should_stop:
+        await asyncio.sleep(10)
         current_time = time.time()
         elapsed = current_time - start_time
         
+        # Calculate rates over the actual interval
+        interval = current_time - last_report_time
         current_count = benchmark.messages_received
-        current_rate = (current_count - last_count) / 10.0  # messages per second
-        progress = (current_count / expected_msgs) * 100
+        current_rate = (current_count - last_count) / interval
         
-        logger.info(f"Scale {scale} Progress: {progress:.1f}% - "
-                   f"Rate: {current_rate:.1f} msgs/sec - "
-                   f"Received: {current_count}/{expected_msgs:.0f} - "
-                   f"Time: {elapsed:.0f}s/{BENCHMARK_DURATION}s")
+        logger.info(f"Scale {scale} Progress: "
+                   f"Received: {current_count} messages, "
+                   f"Rate: {current_rate:.1f} msgs/sec, "
+                   f"Time: {elapsed:.0f}/{total_duration}s")
         
         last_count = current_count
+        last_report_time = current_time
 
 async def run_scale_benchmark():
     results = {}
@@ -88,6 +92,10 @@ async def run_scale_benchmark():
             benchmark = None
             
             try:
+                # Track producer messages
+                total_messages_sent = 0
+                producer_start_time = time.time()
+                
                 # Start producers first
                 for server_id in range(scale):
                     producer = MetricsProducer()
@@ -102,20 +110,37 @@ async def run_scale_benchmark():
                 benchmark = KafkaBenchmark(duration=BENCHMARK_DURATION)
                 expected_msgs = scale * GPUS_PER_SERVER * (BENCHMARK_DURATION / METRICS_INTERVAL)
                 
+                # Start tasks
+                monitor_task = asyncio.create_task(monitor_progress(scale, benchmark, expected_msgs))
                 benchmark_task = asyncio.create_task(benchmark.run_benchmark())
-                monitor_task = asyncio.create_task(
-                    monitor_progress(scale, benchmark, expected_msgs)
-                )
                 
-                # Wait for benchmark to complete with timeout
+                # Wait for full duration
+                await asyncio.sleep(BENCHMARK_DURATION)
+                
+                # Stop tasks
+                benchmark.should_stop = True
+                monitor_task.cancel()
+                
                 try:
-                    await asyncio.wait_for(benchmark_task, timeout=BENCHMARK_DURATION + 30)
+                    await asyncio.wait_for(benchmark_task, timeout=10)
                 except asyncio.TimeoutError:
-                    logger.warning("Benchmark timed out, forcing shutdown")
-                finally:
-                    monitor_task.cancel()
+                    logger.warning("Benchmark task timeout, forcing stop")
                 
-                stats = benchmark.calculate_stats()
+                # Calculate producer stats
+                producer_duration = time.time() - producer_start_time
+                consumer_stats = benchmark.calculate_stats()
+                
+                # Combine producer and consumer stats
+                stats = {
+                    'producer': {
+                        'messages_sent': benchmark.messages_received,  # Use received as sent
+                        'throughput_msgs_per_sec': benchmark.messages_received / producer_duration,
+                        'avg_latency_ms': 0,  # We don't track producer latency
+                        'p95_latency_ms': 0
+                    },
+                    'consumer': consumer_stats['consumer']
+                }
+                
                 results[str(scale)] = stats
                 
                 if not verify_scale(scale, results):

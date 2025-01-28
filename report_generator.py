@@ -82,20 +82,10 @@ def generate_charts(results):
     """Generate Plotly charts for the results"""
     scales = list(map(int, results.keys()))
     
-    # Create subplots
+    # Create subplots - just consumer metrics now
     fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=("Throughput (Producer)", "Throughput (Consumer)",
-                       "Latency (Producer)", "Latency (Consumer)")
-    )
-    
-    # Producer throughput
-    fig.add_trace(
-        go.Scatter(x=scales, 
-                  y=[results[str(s)]['producer']['throughput_msgs_per_sec'] for s in scales],
-                  name="Producer Throughput",
-                  mode='lines+markers'),
-        row=1, col=1
+        rows=1, cols=2,
+        subplot_titles=("Consumer Throughput", "Consumer Latency")
     )
     
     # Consumer throughput
@@ -104,16 +94,7 @@ def generate_charts(results):
                   y=[results[str(s)]['consumer']['throughput_msgs_per_sec'] for s in scales],
                   name="Consumer Throughput",
                   mode='lines+markers'),
-        row=1, col=2
-    )
-    
-    # Producer latency
-    fig.add_trace(
-        go.Scatter(x=scales, 
-                  y=[results[str(s)]['producer']['avg_latency_ms'] for s in scales],
-                  name="Producer Avg Latency",
-                  mode='lines+markers'),
-        row=2, col=1
+        row=1, col=1
     )
     
     # Consumer latency
@@ -122,10 +103,10 @@ def generate_charts(results):
                   y=[results[str(s)]['consumer']['avg_latency_ms'] for s in scales],
                   name="Consumer Avg Latency",
                   mode='lines+markers'),
-        row=2, col=2
+        row=1, col=2
     )
     
-    fig.update_layout(height=800, showlegend=True)
+    fig.update_layout(height=400, showlegend=True)
     return fig.to_html(include_plotlyjs=False)
 
 def generate_results_table(results):
@@ -134,12 +115,10 @@ def generate_results_table(results):
     <table>
         <tr>
             <th>Scale</th>
-            <th>Messages Sent</th>
-            <th>Producer Throughput</th>
-            <th>Producer Avg Latency</th>
             <th>Messages Received</th>
             <th>Consumer Throughput</th>
             <th>Consumer Avg Latency</th>
+            <th>Consumer P95 Latency</th>
         </tr>
     """
     
@@ -149,12 +128,10 @@ def generate_results_table(results):
         table_html += f"""
         <tr>
             <td>{scale}</td>
-            <td>{r['producer']['messages_sent']:,}</td>
-            <td>{r['producer']['throughput_msgs_per_sec']:,.2f}</td>
-            <td>{r['producer']['avg_latency_ms']:,.2f} ms</td>
             <td>{r['consumer']['messages_received']:,}</td>
             <td>{r['consumer']['throughput_msgs_per_sec']:,.2f}</td>
             <td>{r['consumer']['avg_latency_ms']:,.2f} ms</td>
+            <td>{r['consumer']['p95_latency_ms']:,.2f} ms</td>
         </tr>
         """
     
