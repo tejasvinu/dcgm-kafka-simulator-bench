@@ -123,42 +123,38 @@ DCGM_FI_DEV_FB_USED{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b"
 
 async def run_server(server_id, producer):
     emulator = DCGMServerEmulator(server_id)
-    batch_size = 10  # Number of metrics to batch together
-    metrics_batch = []
-    
     while True:
+        start_time = time.time()
+        tasks = []
+        
+        # Send metrics for each GPU in parallel
         for gpu_id in range(emulator.num_gpus):
             metric = emulator.generate_metric(gpu_id)
-            metrics_batch.append(metric)
+            tasks.append(producer.send_metric(metric))
             
-            if len(metrics_batch) >= batch_size:
-                try:
-                    combined_metric = "\n".join(metrics_batch)
-                    await producer.send_metric(combined_metric)
-                    metrics_batch = []
-                except Exception as e:
-                    logging.error(f"Error sending metrics batch: {e}")
-                    metrics_batch = []
-                
-        if metrics_batch:  # Send any remaining metrics
-            try:
-                combined_metric = "\n".join(metrics_batch)
-                await producer.send_metric(combined_metric)
-                metrics_batch = []
-            except Exception as e:
-                logging.error(f"Error sending remaining metrics: {e}")
-                metrics_batch = []
-                
-        await asyncio.sleep(METRICS_INTERVAL)
+        if tasks:
+            await asyncio.gather(*tasks)
+            
+        # Calculate sleep time to maintain proper interval
+        elapsed = time.time() - start_time
+        sleep_time = max(0, METRICS_INTERVAL - elapsed)
+        await asyncio.sleep(sleep_time)
 
 async def main():
     producer = MetricsProducer()
+    tasks = []
+    
     try:
         await producer.start()
-        tasks = [
-            run_server(server_id, producer)
-            for server_id in range(NUM_SERVERS)
-        ]
+        # Create tasks for each server
+        for server_id in range(NUM_SERVERS):
+            task = asyncio.create_task(run_server(server_id, producer))
+            tasks.append(task)
+            
+        # Give each server a slight offset to avoid thundering herd
+        for i, task in enumerate(tasks):
+            await asyncio.sleep(0.1)  # 100ms stagger between servers
+            
         await asyncio.gather(*tasks)
     finally:
         await producer.close()

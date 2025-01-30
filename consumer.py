@@ -19,23 +19,36 @@ class Metrics:
 async def process_message(message, metrics):
     """Process each message received from Kafka"""
     try:
-        receive_time = time.time() * 1000  # Convert to milliseconds
-        value = message.value.decode('utf-8')
+        # Get current time in microseconds
+        receive_time = int(time.time() * 1000000)
         
-        # Extract send_time from message if available, otherwise use receive_time
-        try:
-            send_time = float(message.headers.get('send_time', receive_time))
-        except:
-            send_time = receive_time
+        # Extract send_time from headers
+        send_time = None
+        if message.headers:
+            for key, value in message.headers:
+                if key == 'send_time_us':
+                    try:
+                        send_time = int(value.decode('utf-8'))
+                        break
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Invalid timestamp in header: {e}")
+        
+        if send_time is None:
+            logger.warning("No valid send_time found in message headers")
+            return
             
-        latency = receive_time - send_time
+        # Calculate latency in milliseconds
+        latency = (receive_time - send_time) / 1000.0  # Convert to milliseconds
         metrics.add_message(latency)
         
         if metrics.message_count % 1000 == 0:
-            logger.info(f"Processed {metrics.message_count} messages")
+            avg_latency = metrics.total_latency / metrics.message_count
+            logger.info(f"Processed {metrics.message_count} messages. "
+                       f"Avg latency: {avg_latency:.2f}ms, "
+                       f"Current latency: {latency:.2f}ms")
             
     except Exception as e:
-        logger.error(f"Error processing message: {e}")
+        logger.error(f"Error processing message: {e}", exc_info=True)
 
 async def consume_metrics(metrics=None):
     consumer = AIOKafkaConsumer(

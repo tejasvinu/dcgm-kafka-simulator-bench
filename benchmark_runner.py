@@ -16,18 +16,38 @@ RUNS_PER_CONFIG = 3  # Number of runs per configuration for averaging
 
 async def run_configuration_benchmark(num_servers):
     results = []
+    max_retries = 3
     
     for run in range(RUNS_PER_CONFIG):
-        logger.info(f"Starting benchmark run {run + 1}/{RUNS_PER_CONFIG} with {num_servers} servers")
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                logger.info(f"Starting benchmark run {run + 1}/{RUNS_PER_CONFIG} with {num_servers} servers (attempt {retry_count + 1})")
+                
+                # Update configuration
+                config.NUM_SERVERS = num_servers
+                
+                # Run benchmark
+                result = await run_benchmark(DURATION_SECONDS)
+                
+                # Verify results are valid
+                if result["avg_latency_ms"] == 0:
+                    raise ValueError("Invalid latency measurements detected")
+                    
+                results.append(result)
+                break  # Success, exit retry loop
+                
+            except Exception as e:
+                retry_count += 1
+                logger.error(f"Benchmark attempt failed: {e}")
+                if retry_count < max_retries:
+                    logger.info(f"Retrying in 10 seconds...")
+                    await asyncio.sleep(10)
+                else:
+                    logger.error(f"All retry attempts failed for {num_servers} servers, run {run + 1}")
+                    raise
         
-        # Update configuration
-        config.NUM_SERVERS = num_servers
-        
-        # Run benchmark
-        result = await run_benchmark(DURATION_SECONDS)
-        results.append(result)
-        
-        # Wait between runs
+        # Wait between successful runs
         await asyncio.sleep(10)
     
     # Calculate averages
