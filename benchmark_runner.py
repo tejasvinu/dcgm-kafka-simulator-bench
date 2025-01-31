@@ -3,6 +3,7 @@ import logging
 import json
 from datetime import datetime
 from kafka_bench import run_benchmark
+import config  # Direct import of config module
 from config import (
     KAFKA_PORTS, KAFKA_TOPIC, 
     SERVER_SCALE_CONFIGS,
@@ -142,7 +143,8 @@ async def main():
     all_results = []
 
     try:
-        for num_servers in SERVER_CONFIGS:
+        # Changed SERVER_CONFIGS to SERVER_SCALE_CONFIGS
+        for num_servers in SERVER_SCALE_CONFIGS:
             result = await run_configuration_benchmark(num_servers)
             all_results.append(result)
             
@@ -162,11 +164,12 @@ async def main():
             
     except Exception as e:
         logger.error(f"Benchmark failed: {e}")
+        raise  # Re-raise the exception for debugging
     finally:
         # Generate reports
         config_data = {
-            "Kafka Brokers": len(config.KAFKA_PORTS),
-            "Topic": config.KAFKA_TOPIC,
+            "Kafka Brokers": len(KAFKA_PORTS),  # Using imported KAFKA_PORTS
+            "Topic": KAFKA_TOPIC,               # Using imported KAFKA_TOPIC
             "Duration per test": f"{DURATION_SECONDS} seconds",
             "Runs per configuration": RUNS_PER_CONFIG,
             "Test Date": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
