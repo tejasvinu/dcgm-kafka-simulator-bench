@@ -72,10 +72,12 @@ async def run_server(server_id, producer):
                 break
             await asyncio.sleep(1)  # Brief pause before retry
 
-async def main(num_servers):
+async def main(num_servers=None):
+    if num_servers is None:
+        num_servers = NUM_SERVERS  # Use config.NUM_SERVERS when not provided
+
     producer = MetricsProducer()
     tasks = []
-    
     try:
         await producer.start()
         for server_id in range(num_servers):
