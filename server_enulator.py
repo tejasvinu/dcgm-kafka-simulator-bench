@@ -123,22 +123,35 @@ DCGM_FI_DEV_FB_USED{node="0",gpu="3",UUID="GPU-f396eded927405e15b27af379411806b"
 
 async def run_server(server_id, producer):
     emulator = DCGMServerEmulator(server_id)
+    failures = 0
+    max_failures = 10  # Maximum consecutive failures before giving up
+    
     while True:
-        start_time = time.time()
-        tasks = []
-        
-        # Send metrics for each GPU in parallel
-        for gpu_id in range(emulator.num_gpus):
-            metric = emulator.generate_metric(gpu_id)
-            tasks.append(producer.send_metric(metric))
+        try:
+            start_time = time.time()
+            tasks = []
             
-        if tasks:
-            await asyncio.gather(*tasks)
+            # Send metrics for each GPU in parallel
+            for gpu_id in range(emulator.num_gpus):
+                metric = emulator.generate_metric(gpu_id)
+                tasks.append(producer.send_metric(metric))
+                
+            if tasks:
+                await asyncio.gather(*tasks)
+                failures = 0  # Reset failure counter on success
+                
+            # Calculate sleep time to maintain proper interval
+            elapsed = time.time() - start_time
+            sleep_time = max(0, METRICS_INTERVAL - elapsed)
+            await asyncio.sleep(sleep_time)
             
-        # Calculate sleep time to maintain proper interval
-        elapsed = time.time() - start_time
-        sleep_time = max(0, METRICS_INTERVAL - elapsed)
-        await asyncio.sleep(sleep_time)
+        except Exception as e:
+            failures += 1
+            logging.error(f"Server {server_id} encountered error: {e}")
+            if failures >= max_failures:
+                logging.error(f"Server {server_id} exceeded maximum failures, shutting down")
+                break
+            await asyncio.sleep(1)  # Brief pause before retry
 
 async def main():
     producer = MetricsProducer()
@@ -146,16 +159,17 @@ async def main():
     
     try:
         await producer.start()
+        
         # Create tasks for each server
         for server_id in range(NUM_SERVERS):
             task = asyncio.create_task(run_server(server_id, producer))
             tasks.append(task)
-            
-        # Give each server a slight offset to avoid thundering herd
-        for i, task in enumerate(tasks):
-            await asyncio.sleep(0.1)  # 100ms stagger between servers
+            # Stagger server starts to avoid overwhelming the broker
+            await asyncio.sleep(0.5)  # Increased stagger time
             
         await asyncio.gather(*tasks)
+    except Exception as e:
+        logging.error(f"Main loop error: {e}")
     finally:
         await producer.close()
 
