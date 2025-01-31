@@ -20,13 +20,13 @@ class MetricsProducer:
                     bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
                     retry_backoff_ms=100,
                     request_timeout_ms=10000,
-                    max_batch_size=32768,
-                    batch_size=16384,
+                    max_batch_size=32768,  # This is valid
                     linger_ms=10,
                     compression_type='gzip',
                     acks='all',
                     max_request_size=2097152,
-                    buffer_memory=67108864
+                    buffer_memory=67108864,
+                    api_version='auto'
                 )
                 await self.producer.start()
                 self.connected = True
