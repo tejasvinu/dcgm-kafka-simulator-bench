@@ -2,7 +2,7 @@ import asyncio
 import logging
 import json
 from datetime import datetime
-from kafka_bench import run_benchmark
+from Kafka_bench import run_benchmark
 import config  # Direct import of config module
 from config import (
     KAFKA_PORTS, KAFKA_TOPIC, 
