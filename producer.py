@@ -20,7 +20,6 @@ class MetricsProducer:
                     bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
                     retry_backoff_ms=100,
                     request_timeout_ms=10000,
-                    max_batch_size=32768,
                     compression_type='gzip',
                     acks=1,  # Changed from 'all' to 1
                     api_version='auto'
