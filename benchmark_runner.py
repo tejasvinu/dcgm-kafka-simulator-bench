@@ -18,6 +18,10 @@ async def run_configuration_benchmark(num_servers):
     results = []
     max_retries = 3
     
+    # Use a constant interval: remove or comment out dynamic assignment
+    # config.METRICS_INTERVAL = config.get_metrics_interval(num_servers)
+    config.METRICS_INTERVAL = 1.0
+    
     for run in range(RUNS_PER_CONFIG):
         retry_count = 0
         while retry_count < max_retries:

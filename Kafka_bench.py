@@ -36,13 +36,14 @@ class BenchmarkMetrics:
             "p99_latency_ms": statistics.quantiles(self.latencies, n=100)[98] if self.latencies else 0
         }
 
-async def run_benchmark(duration_seconds=30):
+async def run_benchmark(duration_seconds=30, num_servers=None):
     """Run the consumer and server emulator concurrently for a given duration."""
     metrics = BenchmarkMetrics()
     metrics.start_time = time.time()
 
     consumer_task = asyncio.create_task(consume_metrics(metrics))
-    server_task = asyncio.create_task(server_main())
+    # Pass num_servers to server_main
+    server_task = asyncio.create_task(server_main(num_servers))
 
     logger.info(f"Benchmark started. Running for {duration_seconds} seconds...")
     await asyncio.sleep(duration_seconds)

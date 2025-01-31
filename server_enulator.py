@@ -72,25 +72,19 @@ async def run_server(server_id, producer):
                 break
             await asyncio.sleep(1)  # Brief pause before retry
 
-async def main():
+async def main(num_servers):
     producer = MetricsProducer()
     tasks = []
     
     try:
         await producer.start()
-        
-        # Create tasks for each server
-        for server_id in range(NUM_SERVERS):
+        for server_id in range(num_servers):
             task = asyncio.create_task(run_server(server_id, producer))
             tasks.append(task)
-            # Stagger server starts to avoid overwhelming the broker
-            await asyncio.sleep(0.5)  # Increased stagger time
-            
+            await asyncio.sleep(0.5)
         await asyncio.gather(*tasks)
-    except Exception as e:
-        logging.error(f"Main loop error: {e}")
     finally:
         await producer.close()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.run(main(NUM_SERVERS))

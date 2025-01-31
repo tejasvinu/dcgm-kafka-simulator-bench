@@ -106,17 +106,23 @@ def create_config_table(config):
 
 def create_results_table(results):
     headers = ["Servers", "Messages/sec", "Avg Latency (ms)", "P95 Latency (ms)", "P99 Latency (ms)"]
+    max_throughput = max(r['messages_per_second'] for r in results) if results else 0
     rows = []
     for r in results:
+        # Highlight if it matches the max throughput
+        mps_str = f"{r['messages_per_second']:.2f}"
+        if abs(r['messages_per_second'] - max_throughput) < 1e-9:
+            mps_str += " *"  # Add an asterisk
+
         row = [
             f"<td>{r['num_servers']}</td>",
-            f"<td>{r['messages_per_second']:.2f}</td>",
+            f"<td>{mps_str}</td>",
             f"<td>{r['avg_latency_ms']:.2f}</td>",
             f"<td>{r['p95_latency_ms']:.2f}</td>",
             f"<td>{r['p99_latency_ms']:.2f}</td>"
         ]
         rows.append(f"<tr>{''.join(row)}</tr>")
-    
+
     return f"<table><tr><th>{'</th><th>'.join(headers)}</th></tr>{''.join(rows)}</table>"
 
 def generate_html_report(results, config_data, timestamp):
