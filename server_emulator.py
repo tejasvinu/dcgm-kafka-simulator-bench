@@ -6,10 +6,12 @@ from producer import MetricsProducer
 from config import NUM_SERVERS, GPUS_PER_SERVER, METRICS_INTERVAL
 
 class DCGMServerEmulator:
-    def __init__(self, server_id):
+    def __init__(self, server_id, batch_size=10):
         self.server_id = f"server_{server_id}"
         self.num_gpus = GPUS_PER_SERVER
-        self.hostname = f"node{server_id:02d}"
+        self.batch_size = batch_size
+        self.metrics_buffer = []
+        self.last_send_time = time.time()
 
     def generate_metric(self, gpu_id):
         # Generate unique UUID for each GPU
@@ -42,49 +44,51 @@ DCGM_FI_DEV_POWER_USAGE{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pc
 # TYPE DCGM_FI_DEV_GPU_UTIL gauge
 DCGM_FI_DEV_GPU_UTIL{{node="{self.server_id}",gpu="{gpu_id}",UUID="{uuid}",pci_bus_id="{pci_id}",device="nvidia{gpu_id}",modelName="Tesla V100-SXM2-16GB",Hostname="{self.hostname}",DCGM_FI_DRIVER_VERSION="450.51.06"}} {gpu_util}"""
 
-async def run_server(server_id, producer):
-    emulator = DCGMServerEmulator(server_id)
-    failures = 0
-    max_failures = 10  # Maximum consecutive failures before giving up
+    async def send_metrics_batch(self, producer):
+        if not self.metrics_buffer:
+            return
+            
+        try:
+            combined_metric = "\n".join(self.metrics_buffer)
+            await producer.send_metric(combined_metric, key=self.server_id.encode())
+            self.metrics_buffer = []
+            self.last_send_time = time.time()
+        except Exception as e:
+            logging.error(f"Error sending metrics batch for {self.server_id}: {e}")
+            self.metrics_buffer = []  # Clear buffer on error
+
+async def run_servers(num_servers, producer):
+    """Run multiple server emulators with dynamic batch sizing"""
+    logging.info(f"Starting {num_servers} server emulators...")
+    
+    # Adjust batch size based on server count
+    batch_size = min(50, max(10, num_servers // 100))  # Scale batch size with server count
+    emulators = [DCGMServerEmulator(i, batch_size) for i in range(num_servers)]
     
     while True:
-        try:
-            start_time = time.time()
-            
-            # Send metrics for each GPU sequentially to avoid overwhelming
+        tasks = []
+        for emulator in emulators:
             for gpu_id in range(emulator.num_gpus):
                 metric = emulator.generate_metric(gpu_id)
-                await producer.send_metric(metric)
-                # Small delay between GPUs
-                await asyncio.sleep(0.01)
-            
-            # Calculate and maintain proper interval
-            elapsed = time.time() - start_time
-            sleep_time = max(0.1, METRICS_INTERVAL - elapsed)  # Minimum 100ms interval
-            await asyncio.sleep(sleep_time)
-            failures = 0  # Reset failure counter on success
-            
-        except Exception as e:
-            failures += 1
-            logging.error(f"Server {server_id} encountered error: {e}")
-            if failures >= max_failures:
-                logging.error(f"Server {server_id} exceeded maximum failures, shutting down")
-                break
-            await asyncio.sleep(1)  # Brief pause before retry
+                emulator.metrics_buffer.append(metric)
+                
+                if len(emulator.metrics_buffer) >= emulator.batch_size:
+                    tasks.append(emulator.send_metrics_batch(producer))
+        
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        
+        await asyncio.sleep(METRICS_INTERVAL)
 
 async def main(num_servers=None):
+    """Main entry point with configurable server count"""
     if num_servers is None:
-        num_servers = NUM_SERVERS  # Use config.NUM_SERVERS when not provided
-
+        num_servers = NUM_SERVERS
+        
     producer = MetricsProducer()
-    tasks = []
     try:
         await producer.start()
-        for server_id in range(num_servers):
-            task = asyncio.create_task(run_server(server_id, producer))
-            tasks.append(task)
-            await asyncio.sleep(0.5)
-        await asyncio.gather(*tasks)
+        await run_servers(num_servers, producer)
     finally:
         await producer.close()
 

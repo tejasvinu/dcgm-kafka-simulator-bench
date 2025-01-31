@@ -4,7 +4,7 @@ import time
 import statistics
 import argparse
 from consumer import consume_metrics
-from server_enulator import main as server_main
+from server_emulator import main as server_main
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
