@@ -107,8 +107,11 @@ async def run_configuration_benchmark(num_servers):
                 logger.info(f"Starting benchmark run {run + 1}/{RUNS_PER_CONFIG} "
                           f"with {num_servers} servers (attempt {retry_count + 1})")
                 
-                # Fixed: Pass duration_seconds as first argument
-                result = await run_benchmark(duration_seconds=DURATION_SECONDS, num_servers=num_servers)
+                # Fixed: Use consistent parameter names
+                result = await run_benchmark(
+                    duration_seconds=DURATION_SECONDS,
+                    num_servers=num_servers
+                )
                 
                 if result["avg_latency_ms"] == 0:
                     raise ValueError("Invalid latency measurements detected")

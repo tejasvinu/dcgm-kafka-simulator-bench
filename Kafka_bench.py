@@ -37,12 +37,16 @@ class BenchmarkMetrics:
         }
 
 async def run_benchmark(duration_seconds=30, num_servers=None):
-    """Run the consumer and server emulator concurrently for a given duration."""
+    """Run the consumer and server emulator concurrently for a given duration.
+    
+    Args:
+        duration_seconds (int): Duration to run the benchmark in seconds
+        num_servers (int): Number of servers to simulate
+    """
     metrics = BenchmarkMetrics()
     metrics.start_time = time.time()
 
     consumer_task = asyncio.create_task(consume_metrics(metrics))
-    # Pass num_servers to server_main
     server_task = asyncio.create_task(server_main(num_servers))
 
     logger.info(f"Benchmark started. Running for {duration_seconds} seconds...")
@@ -78,7 +82,7 @@ def main():
     args = parser.parse_args()
     
     try:
-        asyncio.run(run_benchmark(args.duration, args.servers))
+        asyncio.run(run_benchmark(duration_seconds=args.duration, num_servers=args.servers))
     except KeyboardInterrupt:
         logger.info("Benchmark stopped by user")
     except Exception as e:
