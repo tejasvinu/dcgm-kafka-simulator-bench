@@ -73,10 +73,12 @@ def main():
     parser = argparse.ArgumentParser(description='Kafka Benchmark Tool')
     parser.add_argument('--duration', type=int, default=30,
                       help='Duration of the benchmark in seconds')
+    parser.add_argument('--servers', type=int, default=None,
+                      help='Number of servers to simulate')
     args = parser.parse_args()
     
     try:
-        asyncio.run(run_benchmark(args.duration))
+        asyncio.run(run_benchmark(args.duration, args.servers))
     except KeyboardInterrupt:
         logger.info("Benchmark stopped by user")
     except Exception as e:
