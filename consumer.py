@@ -42,7 +42,12 @@ async def process_message(message, metrics):
         metrics.add_message(latency)
         
         if metrics.message_count % 1000 == 0:
-            avg_latency = metrics.total_latency / metrics.message_count
+            # Calculate average latency based on available attributes
+            if hasattr(metrics, 'total_latency'):
+                avg_latency = metrics.total_latency / metrics.message_count
+            else:
+                avg_latency = sum(metrics.latencies) / len(metrics.latencies)
+                
             logger.info(f"Processed {metrics.message_count} messages. "
                        f"Avg latency: {avg_latency:.2f}ms, "
                        f"Current latency: {latency:.2f}ms")

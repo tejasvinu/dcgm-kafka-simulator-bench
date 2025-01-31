@@ -15,14 +15,16 @@ class BenchmarkMetrics:
         self.end_time = None
         self.message_count = 0
         self.latencies = []
+        self.total_latency = 0  # Add this field
 
     def add_message(self, latency_ms):
         self.message_count += 1
         self.latencies.append(latency_ms)
+        self.total_latency += latency_ms  # Update total latency
 
     def get_results(self):
         duration = self.end_time - self.start_time
-        avg_latency = statistics.mean(self.latencies) if self.latencies else 0
+        avg_latency = self.total_latency / self.message_count if self.message_count > 0 else 0
         throughput = self.message_count / duration if duration > 0 else 0
         
         return {
