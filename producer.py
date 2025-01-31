@@ -56,7 +56,8 @@ class MetricsProducer:
                     ('send_time_us', str(current_time).encode('utf-8'))
                 ]
                 
-                await self.producer.send_and_wait(
+                # Use send instead of send_and_wait for non-blocking send
+                await self.producer.send(
                     topic=KAFKA_TOPIC,
                     value=metric_data.encode('utf-8'),
                     headers=headers,
