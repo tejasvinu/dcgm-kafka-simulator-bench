@@ -6,4 +6,17 @@ KAFKA_BOOTSTRAP_SERVERS = [f'{KAFKA_HOST}:{port}' for port in KAFKA_PORTS]
 # Server emulator settings
 NUM_SERVERS = 10
 GPUS_PER_SERVER = 4
-METRICS_INTERVAL = 1  # seconds
+
+# Adjust metrics interval based on server count
+def get_metrics_interval(num_servers):
+    if num_servers <= 8:
+        return 1.0
+    elif num_servers <= 32:
+        return 2.0
+    elif num_servers <= 128:
+        return 4.0
+    else:
+        return 8.0
+
+# Default interval
+METRICS_INTERVAL = 1.0  # Will be adjusted dynamically
