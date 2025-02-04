@@ -24,7 +24,8 @@ def setup_logging(timestamp):
     """Configure logging with file and console output"""
     log_dir = "benchmark_logs"
     os.makedirs(log_dir, exist_ok=True)
-    log_file = f"{log_dir}/benchmark_{timestamp}.log"
+    # Replace f-string with format() for compatibility with older Python versions
+    log_file = "{}/benchmark_{}.log".format(log_dir, timestamp)
     
     # Create handlers
     file_handler = logging.FileHandler(filename=log_file)
