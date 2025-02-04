@@ -51,7 +51,7 @@ class BenchmarkRunner:
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.results_dir = "benchmark_results"
         self.log_file = setup_logging(self.timestamp)
-        os.makedirs(f"{self.results_dir}/{self.timestamp}", exist_ok=True)
+        os.makedirs("{}/{}".format(self.results_dir, self.timestamp), exist_ok=True)
         
         self.server_counts = SERVER_SCALE_CONFIGS
         self.results = []
@@ -61,14 +61,14 @@ class BenchmarkRunner:
         self.test_duration = 300      # 5 min test
         self.cooldown_duration = 60   # 1 min cooldown
         
-        logging.info(f"Initialized benchmark runner with server scales: {self.server_counts}")
+        logging.info("Initialized benchmark runner with server scales: {}".format(self.server_counts))
 
     async def run_benchmark(self, num_servers):
         """Run benchmark with specified number of servers"""
         try:
             # Update configuration
             num_consumers = calculate_num_consumers(num_servers)
-            logging.info(f"Starting benchmark with {num_servers} servers and {num_consumers} consumers")
+            logging.info("Starting benchmark with {} servers and {} consumers".format(num_servers, num_consumers))
             
             # Update config.py with new values
             with open("config.py", "r") as f:
@@ -76,12 +76,12 @@ class BenchmarkRunner:
             
             updated_config = re.sub(
                 r'NUM_SERVERS = \d+',
-                f'NUM_SERVERS = {num_servers}',
+                'NUM_SERVERS = {}'.format(num_servers),
                 config_content
             )
             updated_config = re.sub(
                 r'NUM_CONSUMERS = \d+',
-                f'NUM_CONSUMERS = {num_consumers}',
+                'NUM_CONSUMERS = {}'.format(num_consumers),
                 updated_config
             )
             
@@ -93,7 +93,7 @@ class BenchmarkRunner:
             return result
             
         except Exception as e:
-            logging.error(f"Error running benchmark with {num_servers} servers: {e}")
+            logging.error("Error running benchmark with {} servers: {}".format(num_servers, e))
             raise
 
 async def run_configuration_benchmark(num_servers):
@@ -105,8 +105,8 @@ async def run_configuration_benchmark(num_servers):
         retry_count = 0
         while retry_count < max_retries:
             try:
-                logger.info(f"Starting benchmark run {run + 1}/{RUNS_PER_CONFIG} "
-                          f"with {num_servers} servers (attempt {retry_count + 1})")
+                logger.info("Starting benchmark run {}/{} with {} servers (attempt {})".format(
+                    run + 1, RUNS_PER_CONFIG, num_servers, retry_count + 1))
                 
                 # Fixed: Use consistent parameter names
                 result = await run_benchmark(
@@ -122,12 +122,12 @@ async def run_configuration_benchmark(num_servers):
                 
             except Exception as e:
                 retry_count += 1
-                logger.error(f"Benchmark attempt failed: {e}")
+                logger.error("Benchmark attempt failed: {}".format(e))
                 if retry_count < max_retries:
-                    logger.info(f"Retrying in 10 seconds...")
+                    logger.info("Retrying in 10 seconds...")
                     await asyncio.sleep(10)
                 else:
-                    logger.error(f"All retry attempts failed for {num_servers} servers")
+                    logger.error("All retry attempts failed for {} servers".format(num_servers))
                     raise
         
         await asyncio.sleep(10)  # Wait between runs
@@ -144,7 +144,7 @@ async def run_configuration_benchmark(num_servers):
 
 async def main():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = f"benchmark_results_{timestamp}.json"
+    results_file = "benchmark_results_{}.json".format(timestamp)
     all_results = []
 
     try:
@@ -157,25 +157,25 @@ async def main():
             with open(results_file, 'w') as f:
                 json.dump(all_results, f, indent=2)
             
-            logger.info(f"Results for {num_servers} servers:")
-            logger.info(f"Messages/sec: {result['messages_per_second']:.2f}")
-            logger.info(f"Avg Latency: {result['avg_latency_ms']:.2f} ms")
-            logger.info(f"P95 Latency: {result['p95_latency_ms']:.2f} ms")
-            logger.info(f"P99 Latency: {result['p99_latency_ms']:.2f} ms")
+            logger.info("Results for {} servers:".format(num_servers))
+            logger.info("Messages/sec: {:.2f}".format(result['messages_per_second']))
+            logger.info("Avg Latency: {:.2f} ms".format(result['avg_latency_ms']))
+            logger.info("P95 Latency: {:.2f} ms".format(result['p95_latency_ms']))
+            logger.info("P99 Latency: {:.2f} ms".format(result['p99_latency_ms']))
             logger.info("-" * 50)
             
             # Cool down period between configurations
             await asyncio.sleep(30)
             
     except Exception as e:
-        logger.error(f"Benchmark failed: {e}")
+        logger.error("Benchmark failed: {}".format(e))
         raise  # Re-raise the exception for debugging
     finally:
         # Generate reports
         config_data = {
             "Kafka Brokers": len(KAFKA_PORTS),  # Using imported KAFKA_PORTS
             "Topic": KAFKA_TOPIC,               # Using imported KAFKA_TOPIC
-            "Duration per test": f"{DURATION_SECONDS} seconds",
+            "Duration per test": "{} seconds".format(DURATION_SECONDS),
             "Runs per configuration": RUNS_PER_CONFIG,
             "Test Date": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
@@ -187,30 +187,30 @@ async def main():
             datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         )
         
-        html_file = f"benchmark_report_{timestamp}.html"
+        html_file = "benchmark_report_{}.html".format(timestamp)
         with open(html_file, 'w') as f:
             f.write(html_content)
         
-        logger.info(f"HTML report generated: {html_file}")
+        logger.info("HTML report generated: {}".format(html_file))
         
         # Also generate the markdown report for compatibility
         generate_report(all_results, timestamp)
 
 def generate_report(results, timestamp):
-    report_file = f"benchmark_report_{timestamp}.md"
+    report_file = "benchmark_report_{}.md".format(timestamp)
     
     with open(report_file, 'w') as f:
         f.write("# Kafka Benchmark Results\n\n")
-        f.write(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        f.write("Date: {}\n\n".format(datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         
         # Configuration table
         f.write("## Test Configuration\n\n")
         f.write("| Parameter | Value |\n")
         f.write("|-----------|-------|\n")
-        f.write(f"| Kafka Brokers | {len(config.KAFKA_PORTS)} |\n")
-        f.write(f"| Topic | {config.KAFKA_TOPIC} |\n")
-        f.write(f"| Duration per test | {DURATION_SECONDS} seconds |\n")
-        f.write(f"| Runs per configuration | {RUNS_PER_CONFIG} |\n\n")
+        f.write("| Kafka Brokers | {} |\n".format(len(config.KAFKA_PORTS)))
+        f.write("| Topic | {} |\n".format(config.KAFKA_TOPIC))
+        f.write("| Duration per test | {} seconds |\n".format(DURATION_SECONDS))
+        f.write("| Runs per configuration | {} |\n\n".format(RUNS_PER_CONFIG))
         
         # Results table
         f.write("## Results\n\n")
@@ -218,9 +218,9 @@ def generate_report(results, timestamp):
         f.write("|---------|--------------|------------------|------------------|------------------|\n")
         
         for r in results:
-            f.write(f"| {r['num_servers']:>7} | {r['messages_per_second']:>12.2f} | "
-                   f"{r['avg_latency_ms']:>16.2f} | {r['p95_latency_ms']:>16.2f} | "
-                   f"{r['p99_latency_ms']:>16.2f} |\n")
+            f.write("| {:>7} | {:>12.2f} | {:>16.2f} | {:>16.2f} | {:>16.2f} |\n".format(
+                r['num_servers'], r['messages_per_second'], r['avg_latency_ms'],
+                r['p95_latency_ms'], r['p99_latency_ms']))
 
 if __name__ == "__main__":
     asyncio.run(main())
